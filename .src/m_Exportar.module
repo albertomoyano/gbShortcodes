@@ -172,11 +172,17 @@ Private Function ElegirCarpetaPaquete() As String
   Dialog.Title = "Carpeta del paquete (.hidden/shortcodes de gbpublisher)"
   Dialog.Path = Settings["Exportar/CarpetaPaquete", User.Home]
 
-  ' ATENCIÓN: SelectDirectory DEVUELVE True AL CANCELAR (GV-16)
-  If Dialog.SelectDirectory() Then Return ""
+  ' EL DESTINO ES .hidden/shortcodes: SIN ESTO EL SELECTOR NO MUESTRA LAS
+  ' CARPETAS OCULTAS. ShowHidden ES ESTÁTICA: SE APAGA AL CERRAR PARA NO
+  ' AFECTAR A LOS DEMÁS DIÁLOGOS
+  Dialog.ShowHidden = True
 
-  sCarpeta = Dialog.Path
-  If sCarpeta = "" Then Return ""
+  ' ATENCIÓN: SelectDirectory DEVUELVE True AL CANCELAR (GV-16)
+  If Dialog.SelectDirectory() Then
+    Dialog.ShowHidden = False
+    Return ""
+  Endif
+  Dialog.ShowHidden = False
 
   ' --- 2. UNA CARPETA VACÍA SIRVE: ES LA PRIMERA EXPORTACIÓN ---
   Try aContenido = Dir(sCarpeta, "*")
