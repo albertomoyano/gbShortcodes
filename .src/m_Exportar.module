@@ -1,0 +1,748 @@
+' Gambas module file
+
+' ============================================
+' Módulo    : m_Exportar
+' Propósito : Genera las salidas del catálogo. Cuatro, con consumidores
+'             distintos:
+'
+'             PAQUETE — la carpeta .hidden/shortcodes/ de gbpublisher,
+'               que viaja en el .deb a /usr/share/gbpublisher/shortcodes/.
+'               _catalogo.tsv con los datos que la aplicación necesita
+'               para listar e insertar, y por cada shortcode un
+'               <nombre>.html con la ayuda y un <nombre>.md con el
+'               ejemplo tal cual, que gbpublisher colorea con su propio
+'               resaltador. Van todos los estados: gbpublisher filtra
+'               (instalado muestra solo lo liberado).
+'
+'             DOCUMENTO DE PRUEBA — un .md con el ejemplo de cada
+'               shortcode que aplica a libros, o a revistas, para
+'               componerlo en PDF, EPUB y HTML antes de liberar.
+'
+'             VOLCADO — INSERT restaurables, para que git guarde algo
+'               que se pueda reconstruir y no solo un binario opaco.
+'
+'             VISTA PREVIA — la página de ayuda de un shortcode, armada
+'               igual que la del paquete, para mirarla antes de exportar.
+'
+' PRINCIPIO DE REPRODUCIBILIDAD: la salida es determinista. Orden fijo
+' (m_Catalogo.ORDEN_CATALOGO), sin fecha de generación, sin ningún dato
+' que cambie entre corridas. Dos exportaciones del mismo contenido
+' producen archivos idénticos, y el diff de git solo muestra lo que
+' efectivamente cambió.
+' ============================================
+
+' --- CONTRATO CON gbpublisher: NO SE CAMBIA DE UN LADO SOLO ---
+Public Const ARCHIVO_CATALOGO As String = "_catalogo.tsv"
+Public Const CABECERA_CATALOGO As String = "nombre\tetiqueta\ttipo\tgrupo\tperfil\torden\testado_libro\testado_revista\tmodo\tapertura\tcierre"
+Public Const MARCA_EJEMPLO As String = "<!--gb:ejemplo-->"
+
+Public Const ARCHIVO_VOLCADO As String = "shortcodes.sql"
+
+' --- TEXTO DE UNA SECCIÓN VACÍA EN UN BORRADOR ---
+' LO LIBERADO NO PUEDE TENERLA: LO IMPIDE UN CHECK DE LA TABLA
+Private Const SECCION_VACIA As String = "<p><i>Sin completar.</i></p>"
+
+' --- ÚLTIMO ERROR DE CONVERSIÓN ---
+' UNA FUNCIÓN QUE DEVUELVE String NO PUEDE SEÑALAR EL FALLO CON Null:
+' EN GAMBAS LA CADENA VACÍA ES Null (GV-68). EL MOTIVO QUEDA ACÁ
+Private $sError As String
+
+' ============================================
+' Función   : ExportarPaquete
+' Propósito : Pide la carpeta del paquete y la escribe.
+' Parámetros: ninguno
+' Retorna   : nada
+' ============================================
+Public Sub ExportarPaquete()
+
+  Dim sCarpeta As String
+  Dim iExportados As Integer
+
+  ' --- 1. HERRAMIENTA EXTERNA: SE VERIFICA ANTES DE EMPEZAR (GV-07) ---
+  If Not HayPandoc() Then Return
+
+  ' --- 2. CARPETA DE DESTINO ---
+  sCarpeta = ElegirCarpetaPaquete()
+  If sCarpeta = "" Then Return
+
+  ' --- 3. ESCRITURA ---
+  iExportados = EscribirPaquete(sCarpeta)
+  If iExportados < 0 Then Return
+
+  ' --- 4. MEMORIA DE LA CARPETA Y AVISO ---
+  Settings["Exportar/CarpetaPaquete"] = sCarpeta
+  Message.Info("Catálogo exportado: " & CStr(iExportados) & " shortcodes." & Chr(10) & sCarpeta)
+
+End
+
+' ============================================
+' Función   : EscribirPaquete
+' Propósito : Escribe la carpeta que gbpublisher lee. Arma todo en
+'             memoria, valida, y recién entonces escribe: un fallo de
+'             Pandoc a mitad del catálogo no deja una carpeta a medias.
+'             Está separada del diálogo para poder probarla sola.
+' Parámetros: sCarpeta As String — carpeta del paquete, ya verificada
+' Retorna   : Integer — shortcodes exportados; -1 si falló (ya informado)
+' ============================================
+Public Function EscribirPaquete(sCarpeta As String) As Integer
+
+  Dim aCatalogo As CShortcode[]
+  Dim oFila As CShortcode
+  Dim aTsv As New String[]
+  Dim cArchivos As New Collection
+  Dim sFragmento As String
+  Dim sArchivo As String
+
+  ' --- 1. CATÁLOGO COMPLETO, EN SU ORDEN ---
+  aCatalogo = m_Catalogo.LeerCatalogo(m_Catalogo.FILTRO_TODOS)
+  If IsNull(aCatalogo) Then Return -1
+  If aCatalogo.Count = 0 Then
+    Message.Warning("El catálogo está vacío: no hay nada que exportar.")
+    Return -1
+  Endif
+
+  ' --- 2. ARMADO EN MEMORIA ---
+  Application.Busy += 1
+
+  aTsv.Add(CABECERA_CATALOGO)
+
+  For Each oFila In aCatalogo
+
+    ' LÍNEA DEL CATÁLOGO: LOS CAMPOS LLEVAN ESCAPADOS \ TAB Y SALTO
+    aTsv.Add(LineaCatalogo(oFila))
+
+    ' AYUDA: SI PANDOC FALLA O EL TEXTO TRAE ALGO QUE LA AYUDA NO
+    ' ADMITE, SE DETIENE TODO Y SE DICE CUÁL
+    sFragmento = FragmentoAyuda(oFila)
+    If sFragmento = "" Then
+      Application.Busy -= 1
+      Message.Error("No se exportó nada." & Chr(10) & Chr(10) & $sError)
+      Return -1
+    Endif
+
+    cArchivos[oFila.sNombre & ".html"] = sFragmento & Chr(10)
+    ' EL EJEMPLO VACÍO TAMBIÉN SE ESCRIBE: gbpublisher NO TIENE QUE
+    ' DISTINGUIR UN ARCHIVO FALTANTE DE UN EJEMPLO SIN ESCRIBIR. PERO
+    ' Collection BORRA LA CLAVE SI SE LE ASIGNA "" (GV-68): SE GUARDA
+    ' CON EL SALTO FINAL, QUE NUNCA ES VACÍO
+    cArchivos[oFila.sNombre & ".md"] = oFila.sEjemplo & Chr(10)
+
+  Next
+
+  cArchivos[ARCHIVO_CATALOGO] = aTsv.Join(Chr(10)) & Chr(10)
+
+  ' --- 3. ESCRITURA: File.Save OPERA EN UTF-8 (SC-02) ---
+  For Each sFragmento In cArchivos
+    sArchivo = cArchivos.Key
+    Try File.Save(sCarpeta &/ sArchivo, sFragmento)
+    If Error Then
+      Application.Busy -= 1
+      Message.Error("No se pudo escribir " & sArchivo & Chr(10) &
+        "La carpeta quedó a medio exportar: repetir la exportación." & Chr(10) &
+        Error.Text)
+      Return -1
+    Endif
+  Next
+
+  Application.Busy -= 1
+
+  ' --- 4. LO QUE YA NO ESTÁ EN EL CATÁLOGO NO PUEDE QUEDAR EN EL PAQUETE ---
+  ' TODO LO QUE HAY EN .hidden/shortcodes/ ENTRA AL .deb
+  If Not LimpiarSobrantes(sCarpeta, cArchivos) Then Return -1
+
+  Return aCatalogo.Count
+
+End
+
+' ============================================
+' Función   : ElegirCarpetaPaquete
+' Propósito : Pide la carpeta de destino y verifica que sea una
+'             exportación de shortcodes o una carpeta vacía. La
+'             exportación borra los .html y .md que no están en el
+'             catálogo: en una carpeta equivocada borraría lo ajeno.
+' Parámetros: ninguno
+' Retorna   : String — carpeta elegida, o vacío si se canceló o no sirve
+' ============================================
+Private Function ElegirCarpetaPaquete() As String
+
+  Dim sCarpeta As String
+  Dim aContenido As String[]
+
+  ' --- 1. DIÁLOGO, CON LA ÚLTIMA CARPETA COMO PUNTO DE PARTIDA ---
+  Dialog.Title = "Carpeta del paquete (.hidden/shortcodes de gbpublisher)"
+  Dialog.Path = Settings["Exportar/CarpetaPaquete", User.Home]
+
+  ' ATENCIÓN: SelectDirectory DEVUELVE True AL CANCELAR (GV-16)
+  If Dialog.SelectDirectory() Then Return ""
+
+  sCarpeta = Dialog.Path
+  If sCarpeta = "" Then Return ""
+
+  ' --- 2. UNA CARPETA VACÍA SIRVE: ES LA PRIMERA EXPORTACIÓN ---
+  Try aContenido = Dir(sCarpeta, "*")
+  If Error Then
+    Message.Error("No se pudo leer la carpeta:" & Chr(10) & sCarpeta & Chr(10) & Error.Text)
+    Return ""
+  Endif
+  If aContenido.Count = 0 Then Return sCarpeta
+
+  ' --- 3. CON CONTENIDO, TIENE QUE SER UNA EXPORTACIÓN ANTERIOR ---
+  If Exist(sCarpeta &/ ARCHIVO_CATALOGO) Then Return sCarpeta
+
+  Message.Error("La carpeta no está vacía y no tiene " & ARCHIVO_CATALOGO & ":" & Chr(10) &
+    sCarpeta & Chr(10) & Chr(10) &
+    "La exportación borra los .html y .md que no son del catálogo." & Chr(10) &
+    "Elegir .hidden/shortcodes del proyecto gbpublisher, o una carpeta vacía.")
+  Return ""
+
+End
+
+' ============================================
+' Función   : LimpiarSobrantes
+' Propósito : Lista los .html y .md de la carpeta que no salieron de
+'             esta exportación y, con confirmación, los borra.
+' Parámetros: sCarpeta As String — carpeta del paquete
+'             cArchivos As Collection — archivos recién escritos
+' Retorna   : Boolean — False si hubo un error al borrar
+' ============================================
+Private Function LimpiarSobrantes(sCarpeta As String, cArchivos As Collection) As Boolean
+
+  Dim aSobrantes As New String[]
+  Dim aEncontrados As String[]
+  Dim sPatron As String
+  Dim sNombre As String
+
+  ' --- 1. BÚSQUEDA ---
+  For Each sPatron In ["*.html", "*.md"]
+    Try aEncontrados = Dir(sCarpeta, sPatron, gb.File)
+    If Error Then
+      Message.Error("No se pudo revisar la carpeta." & Chr(10) & Error.Text)
+      Return False
+    Endif
+    For Each sNombre In aEncontrados
+      If Not cArchivos.Exist(sNombre) Then aSobrantes.Add(sNombre)
+    Next
+  Next
+
+  If aSobrantes.Count = 0 Then Return True
+
+  ' --- 2. CONFIRMACIÓN, CON LA LISTA A LA VISTA ---
+  aSobrantes.Sort()
+  If Message.Question("Estos archivos no son del catálogo y entrarían al paquete:" & Chr(10) & Chr(10) &
+      aSobrantes.Join(Chr(10)) & Chr(10) & Chr(10) & "¿Borrarlos?", "Borrar", "Dejarlos") <> 1 Then
+    Return True
+  Endif
+
+  ' --- 3. BORRADO DE A UNO, CON SU ERROR ---
+  For Each sNombre In aSobrantes
+    Try Kill sCarpeta &/ sNombre
+    If Error Then
+      Message.Error("No se pudo borrar " & sNombre & Chr(10) & Error.Text)
+      Return False
+    Endif
+  Next
+
+  Return True
+
+End
+
+' ============================================
+' Función   : LineaCatalogo
+' Propósito : Arma la línea de _catalogo.tsv de un shortcode, en el
+'             orden de CABECERA_CATALOGO.
+' Parámetros: oFila As CShortcode — shortcode
+' Retorna   : String — línea sin salto final
+' ============================================
+Private Function LineaCatalogo(oFila As CShortcode) As String
+
+  Dim aCampos As New String[]
+
+  aCampos.Add(EscaparTSV(oFila.sNombre))
+  aCampos.Add(EscaparTSV(oFila.sEtiqueta))
+  aCampos.Add(oFila.sTipo)
+  aCampos.Add(oFila.sGrupo)
+  aCampos.Add(EscaparTSV(oFila.sPerfil))
+  aCampos.Add(CStr(oFila.iOrden))
+  aCampos.Add(oFila.sEstadoLibro)
+  aCampos.Add(oFila.sEstadoRevista)
+  aCampos.Add(oFila.sModo)
+  aCampos.Add(EscaparTSV(oFila.sApertura))
+  aCampos.Add(EscaparTSV(oFila.sCierre))
+
+  Return aCampos.Join("\t")
+
+End
+
+' ============================================
+' Función   : EscaparTSV
+' Propósito : Escapa un campo del catálogo. La apertura puede tener
+'             saltos de línea (el bloque de código abre con dos
+'             líneas). Orden obligatorio: primero la barra, que es el
+'             carácter de escape, después lo demás.
+' Parámetros: sTexto As String — valor del campo
+' Retorna   : String — \\ por barra, \t por tabulador, \n por salto
+' ============================================
+Private Function EscaparTSV(sTexto As String) As String
+
+  Dim sSalida As String
+
+  sSalida = Replace(sTexto, "\\", "\\\\")
+  sSalida = Replace(sSalida, Chr(9), "\\t")
+  sSalida = Replace(sSalida, Chr(10), "\\n")
+  sSalida = Replace(sSalida, Chr(13), "")
+
+  Return sSalida
+
+End
+
+' ============================================
+' Función   : FragmentoAyuda
+' Propósito : Arma la ayuda de un shortcode: tres secciones fijas, con
+'             la marca donde gbpublisher pone el ejemplo coloreado.
+'             Es un fragmento, no un documento: el estilo lo pone quien
+'             lo muestra.
+' Parámetros: oFila As CShortcode — shortcode
+' Retorna   : String — fragmento HTML; vacío si falló (motivo en $sError)
+' ============================================
+Public Function FragmentoAyuda(oFila As CShortcode) As String
+
+  Dim sQueEs As String
+  Dim sComoSale As String
+  Dim aSalida As New String[]
+
+  ' --- 1. CONVERSIÓN DE LAS DOS SECCIONES DE TEXTO ---
+  sQueEs = SeccionHTML(oFila.sQueEs, oFila.sNombre, "Qué es")
+  If sQueEs = "" Then Return ""
+
+  sComoSale = SeccionHTML(oFila.sComoSale, oFila.sNombre, "Cómo sale")
+  If sComoSale = "" Then Return ""
+
+  ' --- 2. ARMADO EN EL ORDEN FIJO DE LA AYUDA ---
+  aSalida.Add("<h3>Qué es</h3>")
+  aSalida.Add(sQueEs)
+  aSalida.Add("<h3>Cómo se escribe</h3>")
+  aSalida.Add(MARCA_EJEMPLO)
+  aSalida.Add("<h3>Cómo sale</h3>")
+  aSalida.Add(sComoSale)
+
+  Return aSalida.Join(Chr(10))
+
+End
+
+' ============================================
+' Función   : SeccionHTML
+' Propósito : Convierte una sección de Markdown en HTML y verifica que
+'             no traiga lo que la ayuda no admite. Una sección vacía
+'             sale como «Sin completar.».
+' Parámetros: sMarkdown As String — texto de la sección
+'             sNombre As String — shortcode, para el mensaje
+'             sSeccion As String — nombre de la sección, para el mensaje
+' Retorna   : String — HTML; vacío si falló (motivo en $sError)
+' ============================================
+Private Function SeccionHTML(sMarkdown As String, sNombre As String, sSeccion As String) As String
+
+  Dim sHTML As String
+  Dim sEtiqueta As String
+
+  ' --- 1. SECCIÓN VACÍA: SOLO POSIBLE EN UN BORRADOR ---
+  If Trim$(sMarkdown) = "" Then Return SECCION_VACIA
+
+  ' --- 2. CONVERSIÓN ---
+  sHTML = ConvertirMarkdown(sMarkdown)
+  If sHTML = "" Then
+    $sError = sNombre & ", «" & sSeccion & "»: " & $sError
+    Return ""
+  Endif
+
+  ' --- 3. LO QUE LA AYUDA NO ADMITE ---
+  ' LOS TÍTULOS LOS PONE LA AYUDA; IMÁGENES Y TABLAS NO ESTÁN PROBADAS
+  ' EN EL TextEdit QUE LA MUESTRA (GV-64)
+  For Each sEtiqueta In ["<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<img", "<table"]
+    If InStr(sHTML, sEtiqueta) > 0 Then
+      $sError = sNombre & ", «" & sSeccion & "»: tiene " & sEtiqueta & ">." & Chr(10) &
+        "La ayuda admite párrafos, listas, énfasis, código y enlaces."
+      Return ""
+    Endif
+  Next
+
+  Return Trim$(sHTML)
+
+End
+
+' ============================================
+' Función   : ConvertirMarkdown
+' Propósito : Markdown a HTML con Pandoc. Exec sobre un array, sin
+'             shell (SC-05); la entrada por archivo temporal, porque
+'             Exec ... To no expone stdin; la salida por stdout (GV-20).
+' Parámetros: sMarkdown As String — texto a convertir
+' Retorna   : String — HTML; vacío si falló (motivo en $sError)
+' ============================================
+Private Function ConvertirMarkdown(sMarkdown As String) As String
+
+  Dim sTemporal As String
+  Dim sSalida As String
+
+  ' --- 1. ENTRADA ---
+  sTemporal = Temp$("md")
+  Try File.Save(sTemporal, sMarkdown)
+  If Error Then
+    $sError = "no se pudo escribir el temporal: " & Error.Text
+    Return ""
+  Endif
+
+  ' --- 2. CONVERSIÓN ---
+  ' --wrap=none: SIN CORTES DE LÍNEA QUE DEPENDAN DEL ANCHO, PARA QUE LA
+  ' SALIDA NO CAMBIE SI CAMBIA EL VALOR POR OMISIÓN DE PANDOC
+  Try Exec ["pandoc", "-f", "markdown", "-t", "html", "--wrap=none", sTemporal] To sSalida
+  If Error Then
+    $sError = "Pandoc falló: " & Error.Text
+    Try Kill sTemporal
+    Return ""
+  Endif
+
+  Try Kill sTemporal
+
+  ' --- 3. UN TEXTO NO VACÍO QUE VUELVE VACÍO ES UN FALLO ---
+  ' Exec ... To NO DA EL CÓDIGO DE SALIDA NI stderr (GV-20)
+  If Trim$(sSalida) = "" Then
+    $sError = "Pandoc no devolvió nada."
+    Return ""
+  Endif
+
+  Return sSalida
+
+End
+
+' ============================================
+' Función   : HayPandoc
+' Propósito : Comprueba que Pandoc esté instalado antes de empezar una
+'             exportación, para decir qué falta en lugar de fallar a
+'             mitad de camino (GV-07).
+' Parámetros: ninguno
+' Retorna   : Boolean — True si pandoc responde
+' ============================================
+Public Function HayPandoc() As Boolean
+
+  Dim sSalida As String
+
+  Try Exec ["pandoc", "--version"] To sSalida
+  If Error Then
+    Message.Error("Pandoc no está instalado o no está en el PATH." & Chr(10) & Error.Text)
+    Return False
+  Endif
+
+  If Trim$(sSalida) = "" Then
+    Message.Error("Pandoc no respondió a --version.")
+    Return False
+  Endif
+
+  Return True
+
+End
+
+' ============================================
+' Función   : VistaPrevia
+' Propósito : Arma la página de ayuda de un shortcode para mirarla en
+'             la aplicación. Usa FragmentoAyuda, así que se ve lo mismo
+'             que se exporta; el ejemplo va sin colorear, en un <pre>.
+' Parámetros: oFila As CShortcode — shortcode, con los textos de la UI
+' Retorna   : String — documento HTML completo, o uno con el error
+' ============================================
+Public Function VistaPrevia(oFila As CShortcode) As String
+
+  Dim sFragmento As String
+  Dim aSalida As New String[]
+
+  ' --- 1. EL FRAGMENTO, O EL MOTIVO POR EL QUE NO SE PUDO ARMAR ---
+  sFragmento = FragmentoAyuda(oFila)
+  If sFragmento = "" Then
+    sFragmento = "<p><b>No se puede exportar:</b></p><p>" & EscaparHTML($sError) & "</p>"
+  Else
+    sFragmento = Replace(sFragmento, MARCA_EJEMPLO,
+      "<pre>" & EscaparHTML(oFila.sEjemplo) & "</pre>")
+  Endif
+
+  ' --- 2. DOCUMENTO CON SU ESTILO EN LA CABECERA (GV-64) ---
+  aSalida.Add("<html><head><style>")
+  aSalida.Add("h3 { font-size: 13pt; margin-top: 14px; margin-bottom: 4px; }")
+  aSalida.Add("p { margin-top: 0px; margin-bottom: 8px; }")
+  aSalida.Add("pre { font-family: monospace; background-color: #F2EFE8; }")
+  aSalida.Add("code { font-family: monospace; }")
+  aSalida.Add("</style></head><body>")
+  aSalida.Add(sFragmento)
+  aSalida.Add("</body></html>")
+
+  Return aSalida.Join(Chr(10))
+
+End
+
+' ============================================
+' Función   : EscaparHTML
+' Propósito : Escapa texto para meterlo en HTML. El & primero: si no,
+'             se escaparían los escapes.
+' Parámetros: sTexto As String — texto plano
+' Retorna   : String — texto escapado
+' ============================================
+Private Function EscaparHTML(sTexto As String) As String
+
+  Dim sSalida As String
+
+  sSalida = Replace(sTexto, "&", "&amp;")
+  sSalida = Replace(sSalida, "<", "&lt;")
+  sSalida = Replace(sSalida, ">", "&gt;")
+
+  Return sSalida
+
+End
+
+' ============================================
+' Función   : ExportarPrueba
+' Propósito : Escribe un .md con el ejemplo de cada shortcode que aplica
+'             a libros o a revistas, en borrador o liberado, cada uno
+'             bajo un título con su etiqueta. Es el documento que se
+'             compone en las tres salidas antes de liberar.
+' Parámetros: bLibro As Boolean — True libros, False revistas
+' Retorna   : nada
+' ============================================
+Public Sub ExportarPrueba(bLibro As Boolean)
+
+  Dim aCatalogo As CShortcode[]
+  Dim oFila As CShortcode
+  Dim aSalida As New String[]
+  Dim aSinEjemplo As New String[]
+  Dim sEstado As String
+  Dim sDestino As String
+  Dim iIncluidos As Integer
+
+  ' --- 1. INICIALIZACIÓN ---
+  If bLibro Then
+    sDestino = "libros"
+  Else
+    sDestino = "revistas"
+  Endif
+
+  aCatalogo = m_Catalogo.LeerCatalogo(m_Catalogo.FILTRO_TODOS)
+  If IsNull(aCatalogo) Then Return
+
+  ' --- 2. ENCABEZADO: SIN FECHA, PARA QUE EL ARCHIVO SEA REPRODUCIBLE ---
+  aSalida.Add("Documento de prueba de los shortcodes para " & sDestino & ", generado por gbShortcodes.")
+  aSalida.Add("Cada sección muestra el ejemplo de un shortcode. Las figuras remiten a archivos")
+  aSalida.Add("de media/ que hay que poner antes de componer.")
+  aSalida.Add("")
+
+  ' --- 3. UN TÍTULO Y SU EJEMPLO POR SHORTCODE QUE APLICA ---
+  For Each oFila In aCatalogo
+
+    If bLibro Then
+      sEstado = oFila.sEstadoLibro
+    Else
+      sEstado = oFila.sEstadoRevista
+    Endif
+    If sEstado = "no_aplica" Then Continue
+
+    ' SIN EJEMPLO NO HAY NADA QUE PROBAR: SE INFORMA, NO SE CALLA
+    If Trim$(oFila.sEjemplo) = "" Then
+      aSinEjemplo.Add(oFila.sNombre)
+      Continue
+    Endif
+
+    aSalida.Add("## " & oFila.sEtiqueta)
+    aSalida.Add("")
+    aSalida.Add(oFila.sEjemplo)
+    aSalida.Add("")
+    Inc iIncluidos
+
+  Next
+
+  If iIncluidos = 0 Then
+    Message.Warning("Ningún shortcode con ejemplo aplica a " & sDestino & ".")
+    Return
+  Endif
+
+  ' --- 4. GUARDADO ---
+  If Not GuardarComo("prueba-shortcodes-" & sDestino & ".md", "Markdown", "*.md", aSalida.Join(Chr(10))) Then Return
+
+  If aSinEjemplo.Count > 0 Then
+    Message.Warning("Documento exportado con " & CStr(iIncluidos) & " shortcodes." & Chr(10) &
+      "Quedaron afuera por no tener ejemplo:" & Chr(10) & aSinEjemplo.Join(", "))
+  Else
+    Message.Info("Documento exportado con " & CStr(iIncluidos) & " shortcodes.")
+  Endif
+
+End
+
+' ============================================
+' Función   : ExportarVolcado
+' Propósito : Escribe un volcado SQL restaurable de todo el catálogo
+' Parámetros: ninguno
+' Retorna   : nada
+' ============================================
+Public Sub ExportarVolcado()
+
+  Dim sContenido As String
+
+  ' --- 1. ARMADO ---
+  sContenido = ArmarVolcado()
+  If sContenido = "" Then Return
+
+  ' --- 2. GUARDADO ---
+  If GuardarComo(ARCHIVO_VOLCADO, "SQL", "*.sql", sContenido) Then
+    Message.Info("Volcado SQL exportado." & Chr(10) &
+      "Restaurar sobre una base vacía con:" & Chr(10) &
+      "sqlite3 shortcodes.sqlite < " & ARCHIVO_VOLCADO)
+  Endif
+
+End
+
+' ============================================
+' Función   : ArmarVolcado
+' Propósito : Construye INSERT restaurables. Se arma en Gambas y no con
+'             el CLI de sqlite3, para no depender de él al exportar.
+' Parámetros: ninguno
+' Retorna   : String — script SQL; vacío si falló la consulta
+' ============================================
+Public Function ArmarVolcado() As String
+
+  Dim aSalida As New String[]
+  Dim rFilas As Result
+
+  ' --- 1. ENCABEZADO ---
+  aSalida.Add("-- Volcado del catálogo de shortcodes de gbpublisher")
+  aSalida.Add("-- Restaurar sobre una base creada con el esquema vigente.")
+  aSalida.Add("")
+  aSalida.Add("BEGIN TRANSACTION;")
+  aSalida.Add("DELETE FROM shortcodes;")
+  aSalida.Add("")
+
+  ' --- 2. FILAS EN EL ORDEN DEL CATÁLOGO, PARA QUE EL DIFF SEA LEGIBLE ---
+  Try rFilas = m_Base.hConn.Exec("SELECT * FROM shortcodes ORDER BY " & m_Catalogo.ORDEN_CATALOGO)
+  If Error Then
+    Message.Error("No se pudo leer el catálogo." & Chr(10) & Error.Text)
+    Return ""
+  Endif
+
+  While rFilas.Available
+    ' SIN id_shortcode: ES UN SUBROGADO; LA IDENTIDAD ES nombre
+    aSalida.Add("INSERT INTO shortcodes (nombre, etiqueta, tipo, grupo, perfil, orden, " &
+      "estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, " &
+      "mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES (" &
+      CitarTexto(rFilas["nombre"]) & ", " &
+      CitarTexto(rFilas["etiqueta"]) & ", " &
+      CitarTexto(rFilas["tipo"]) & ", " &
+      CitarTexto(rFilas["grupo"]) & ", " &
+      Citar(rFilas["perfil"]) & ", " &
+      CStr(rFilas["orden"]) & ", " &
+      CitarTexto(rFilas["estado_libro"]) & ", " &
+      CitarTexto(rFilas["estado_revista"]) & ", " &
+      CitarTexto(rFilas["modo"]) & ", " &
+      CitarTexto(rFilas["apertura"]) & ", " &
+      CitarTexto(rFilas["cierre"]) & ", " &
+      Citar(rFilas["que_es"]) & ", " &
+      Citar(rFilas["ejemplo"]) & ", " &
+      Citar(rFilas["como_sale"]) & ", " &
+      Citar(rFilas["mapeo_docbook"]) & ", " &
+      Citar(rFilas["mapeo_jats"]) & ", " &
+      Citar(rFilas["notas"]) & ", " &
+      Citar(rFilas["pendiente"]) & ", " &
+      CitarTexto(rFilas["fecha_alta"]) & ", " &
+      CitarTexto(rFilas["fecha_modificacion"]) & ");")
+    rFilas.MoveNext
+  Wend
+
+  aSalida.Add("")
+  aSalida.Add("COMMIT;")
+  aSalida.Add("")
+
+  Return aSalida.Join(Chr(10))
+
+End
+
+' ============================================
+' Función   : Citar
+' Propósito : Literal SQL de un campo NULABLE: NULL si no hay dato, y
+'             comilla simple duplicada si la hay.
+' Parámetros: vValor As Variant — valor leído de la base
+' Retorna   : String — literal listo para concatenar
+' ============================================
+Private Function Citar(vValor As Variant) As String
+
+  ' --- 1. SIN DATO ---
+  If IsNull(vValor) Then Return "NULL"
+
+  Return CitarTexto(vValor)
+
+End
+
+' ============================================
+' Función   : CitarTexto
+' Propósito : Literal SQL de un campo NOT NULL. Nunca emite NULL: en
+'             Gambas la cadena vacía ES Null (GV-68), así que un
+'             como_sale vacío llegaría como Null y el volcado no se
+'             podría restaurar. Para estos campos, Null es ''.
+' Parámetros: vValor As Variant — valor leído de la base
+' Retorna   : String — literal entre comillas simples
+' ============================================
+Private Function CitarTexto(vValor As Variant) As String
+
+  Dim sTexto As String
+
+  ' --- 1. Null DE UN CAMPO NOT NULL: ES LA CADENA VACÍA ---
+  If IsNull(vValor) Then Return "''"
+
+  sTexto = CStr(vValor)
+
+  ' --- 2. DUPLICADO DE LA COMILLA SIMPLE, QUE ES EL ESCAPE DE SQL ---
+  sTexto = Replace(sTexto, "'", "''")
+
+  Return "'" & sTexto & "'"
+
+End
+
+' ============================================
+' Función   : GuardarComo
+' Propósito : Punto único de guardado de las salidas de un archivo.
+'             Pide destino, confirma sobrescritura y escribe en UTF-8.
+' Parámetros: sSugerido As String — nombre de archivo propuesto
+'             sDescripcion As String — texto del filtro
+'             sPatron As String — patrón del filtro
+'             sContenido As String — texto a escribir
+' Retorna   : Boolean — True si el archivo quedó escrito
+' ============================================
+Private Function GuardarComo(sSugerido As String, sDescripcion As String, sPatron As String, sContenido As String) As Boolean
+
+  Dim sDestino As String
+
+  ' --- 1. DIÁLOGO, CON LA ÚLTIMA CARPETA COMO PUNTO DE PARTIDA ---
+  Dialog.Title = "Exportar como..."
+  Dialog.Filter = [sPatron, sDescripcion]
+  Dialog.AutoExt = True
+  Dialog.Path = Settings["Exportar/UltimaCarpeta", User.Home] &/ sSugerido
+
+  ' ATENCIÓN: LOS DIÁLOGOS DE GAMBAS DEVUELVEN True AL CANCELAR (GV-16)
+  If Dialog.SaveFile() Then Return False
+
+  sDestino = Dialog.Path
+  If sDestino = "" Then Return False
+
+  ' --- 2. CONFIRMACIÓN DE SOBRESCRITURA ---
+  If Exist(sDestino) Then
+    If Message.Question("El archivo ya existe:" & Chr(10) & sDestino & Chr(10) &
+        "¿Sobrescribirlo?", "Sobrescribir", "Cancelar") <> 1 Then
+      Return False
+    Endif
+  Endif
+
+  ' --- 3. ESCRITURA (SC-02) ---
+  Try File.Save(sDestino, sContenido)
+  If Error Then
+    Message.Error("No se pudo escribir el archivo:" & Chr(10) &
+      sDestino & Chr(10) & Error.Text)
+    Return False
+  Endif
+
+  ' --- 4. MEMORIA DE LA CARPETA ---
+  Settings["Exportar/UltimaCarpeta"] = File.Dir(sDestino)
+
+  Return True
+
+End

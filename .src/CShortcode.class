@@ -1,0 +1,44 @@
+' Gambas class file
+
+' ============================================
+' Clase     : CShortcode
+' Propósito : Un shortcode del catálogo fuera del objeto Result, para
+'             que los formularios nunca toquen la base directamente.
+'             Los campos nulables llegan como cadena vacía.
+' ============================================
+
+Public iId As Integer
+Public sNombre As String
+Public sEtiqueta As String
+Public sTipo As String
+Public sGrupo As String
+Public sPerfil As String
+Public iOrden As Integer
+Public sEstadoLibro As String
+Public sEstadoRevista As String
+Public sModo As String
+Public sApertura As String
+Public sCierre As String
+Public sQueEs As String
+Public sEjemplo As String
+Public sComoSale As String
+Public sMapeoDocbook As String
+Public sMapeoJats As String
+Public sNotas As String
+Public sPendiente As String
+
+' ============================================
+' Función   : EstaLiberado
+' Propósito : Dice si el shortcode está liberado en libros o en
+'             revistas. Lo liberado se ve en gbpublisher instalado, y
+'             por eso no puede tener huecos en la ayuda.
+' Parámetros: ninguno
+' Retorna   : Boolean — True si está liberado en alguno de los dos
+' ============================================
+Public Function EstaLiberado() As Boolean
+
+  If sEstadoLibro = "liberado" Then Return True
+  If sEstadoRevista = "liberado" Then Return True
+  Return False
+
+End

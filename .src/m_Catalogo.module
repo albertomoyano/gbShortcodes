@@ -1,0 +1,396 @@
+' Gambas module file
+
+' ============================================
+' Módulo    : m_Catalogo
+' Propósito : Dueño del estado de la sesión y de todo el acceso a la
+'             tabla shortcodes. Los formularios no consultan la base:
+'             le piden datos a este módulo.
+'             La aplicación NO da de alta ni elimina shortcodes, ni
+'             cambia lo que decide su comportamiento (nombre, tipo,
+'             grupo, estados, modo, apertura, cierre): eso se acuerda y
+'             se aplica por script SQL. Acá se pule el texto.
+' ============================================
+
+' --- ESTADO DE SESIÓN (RC-GM-16: NUNCA EN CONTROLES DE UI) ---
+Public NombreEnCurso As String
+
+' --- MAPEOS ÍNDICE DE CONTROL -> DATO ---
+Private $aFiltros As New String[]
+Private $aNombres As New String[]
+
+' --- TOKENS DE LOS FILTROS ---
+' EL PREFIJO @ LOS DISTINGUE DE UN NOMBRE DE SHORTCODE, QUE NUNCA LO LLEVA
+Public Const FILTRO_TODOS As String = ""
+Public Const FILTRO_LIBRO_LIBERADOS As String = "@libro-liberados"
+Public Const FILTRO_LIBRO_BORRADORES As String = "@libro-borradores"
+Public Const FILTRO_REVISTA_LIBERADOS As String = "@revista-liberados"
+Public Const FILTRO_REVISTA_BORRADORES As String = "@revista-borradores"
+Public Const FILTRO_PENDIENTES As String = "@pendientes"
+Public Const FILTRO_COMUNES As String = "@comun"
+Public Const FILTRO_ESTRUCTURA As String = "@estructura"
+Public Const FILTRO_DISCIPLINARES As String = "@disciplinar"
+
+' --- ORDEN DEL CATÁLOGO: EL MISMO EN LA LISTA Y EN TODAS LAS SALIDAS ---
+' GRUPO (COMUNES, ESTRUCTURA, DISCIPLINARES), PERFIL, ORDEN Y NOMBRE.
+' EL NOMBRE AL FINAL DESEMPATA: DOS FILAS CON EL MISMO orden NO PUEDEN
+' CAMBIAR DE LUGAR ENTRE DOS EXPORTACIONES
+Public Const ORDEN_CATALOGO As String = "CASE grupo WHEN 'comun' THEN 1 WHEN 'estructura' THEN 2 ELSE 3 END, IFNULL(perfil, ''), orden, nombre"
+
+' --- MARCA DE LO LIBERADO EN LA LISTA ---
+Private Const MARCA_LIBERADO As String = "★ "
+Private Const MARCA_BORRADOR As String = "   "
+
+' ============================================
+' Función   : CargarFiltros
+' Propósito : Arma las opciones del combo de filtros.
+' Parámetros: ninguno
+' Retorna   : String[] — etiquetas listas para el ComboBox
+' ============================================
+Public Function CargarFiltros() As String[]
+
+  Dim aEtiquetas As New String[]
+
+  ' --- 1. REINICIO DEL MAPEO ---
+  $aFiltros = New String[]
+
+  ' --- 2. FILTROS, EN EL ORDEN EN QUE SE MUESTRAN ---
+  $aFiltros.Add(FILTRO_TODOS)
+  aEtiquetas.Add("(todo el catálogo)")
+  $aFiltros.Add(FILTRO_LIBRO_LIBERADOS)
+  aEtiquetas.Add("(libros: liberados)")
+  $aFiltros.Add(FILTRO_LIBRO_BORRADORES)
+  aEtiquetas.Add("(libros: borradores)")
+  $aFiltros.Add(FILTRO_REVISTA_LIBERADOS)
+  aEtiquetas.Add("(revistas: liberados)")
+  $aFiltros.Add(FILTRO_REVISTA_BORRADORES)
+  aEtiquetas.Add("(revistas: borradores)")
+  $aFiltros.Add(FILTRO_PENDIENTES)
+  aEtiquetas.Add("(con pendientes)")
+  $aFiltros.Add(FILTRO_COMUNES)
+  aEtiquetas.Add("Comunes")
+  $aFiltros.Add(FILTRO_ESTRUCTURA)
+  aEtiquetas.Add("Estructura del producto")
+  $aFiltros.Add(FILTRO_DISCIPLINARES)
+  aEtiquetas.Add("Disciplinares")
+
+  Return aEtiquetas
+
+End
+
+' ============================================
+' Función   : FiltroDeIndice
+' Propósito : Traduce el índice del combo al token del filtro
+' Parámetros: iIndice As Integer — índice seleccionado en el combo
+' Retorna   : String — token, o FILTRO_TODOS si el índice no es válido
+' ============================================
+Public Function FiltroDeIndice(iIndice As Integer) As String
+
+  ' --- 1. GUARDA DE RANGO ---
+  If iIndice < 0 Then Return FILTRO_TODOS
+  If iIndice >= $aFiltros.Count Then Return FILTRO_TODOS
+
+  Return $aFiltros[iIndice]
+
+End
+
+' ============================================
+' Función   : CondicionDeFiltro
+' Propósito : Devuelve la condición SQL de un filtro. Se concatena a la
+'             consulta: es seguro porque sale de esta lista fija y no
+'             de lo que escribe el usuario.
+' Parámetros: sFiltro As String — token del filtro
+' Retorna   : String — condición sin WHERE; vacío para todo el catálogo
+' ============================================
+Private Function CondicionDeFiltro(sFiltro As String) As String
+
+  Select Case sFiltro
+    Case FILTRO_LIBRO_LIBERADOS
+      Return "estado_libro = 'liberado'"
+    Case FILTRO_LIBRO_BORRADORES
+      Return "estado_libro = 'borrador'"
+    Case FILTRO_REVISTA_LIBERADOS
+      Return "estado_revista = 'liberado'"
+    Case FILTRO_REVISTA_BORRADORES
+      Return "estado_revista = 'borrador'"
+    Case FILTRO_PENDIENTES
+      Return "pendiente IS NOT NULL"
+    Case FILTRO_COMUNES
+      Return "grupo = 'comun'"
+    Case FILTRO_ESTRUCTURA
+      Return "grupo = 'estructura'"
+    Case FILTRO_DISCIPLINARES
+      Return "grupo = 'disciplinar'"
+  End Select
+
+  Return ""
+
+End
+
+' ============================================
+' Función   : CargarShortcodes
+' Propósito : Arma las líneas del ListBox principal y guarda el mapeo
+'             índice -> nombre.
+' Parámetros: sFiltro As String — token del filtro
+' Retorna   : String[] — líneas listas para el ListBox
+' ============================================
+Public Function CargarShortcodes(sFiltro As String) As String[]
+
+  Dim aLineas As New String[]
+  Dim rFilas As Result
+  Dim sSQL As String
+  Dim sCondicion As String
+  Dim sLinea As String
+
+  ' --- 1. REINICIO DEL MAPEO ---
+  $aNombres = New String[]
+
+  ' --- 2. CONSULTA CON LA CONDICIÓN DEL FILTRO ---
+  sSQL = "SELECT nombre, etiqueta, perfil, estado_libro, estado_revista FROM shortcodes"
+  sCondicion = CondicionDeFiltro(sFiltro)
+  If sCondicion <> "" Then sSQL &= " WHERE " & sCondicion
+  sSQL &= " ORDER BY " & ORDEN_CATALOGO
+
+  Try rFilas = m_Base.hConn.Exec(sSQL)
+  If Error Then
+    Message.Error("No se pudieron leer los shortcodes." & Chr(10) & Error.Text)
+    Return aLineas
+  Endif
+
+  ' --- 3. ARMADO DE LÍNEAS: LA ESTRELLA MARCA LO LIBERADO ---
+  While rFilas.Available
+    sLinea = MARCA_BORRADOR
+    If rFilas["estado_libro"] = "liberado" Then sLinea = MARCA_LIBERADO
+    If rFilas["estado_revista"] = "liberado" Then sLinea = MARCA_LIBERADO
+    sLinea &= rFilas["etiqueta"] & " — " & rFilas["nombre"]
+    ' EL PERFIL DISTINGUE LOS DISCIPLINARES EN LA LISTA COMPLETA
+    If Not IsNull(rFilas["perfil"]) Then sLinea &= " (" & rFilas["perfil"] & ")"
+    aLineas.Add(sLinea)
+    $aNombres.Add(rFilas["nombre"])
+    rFilas.MoveNext
+  Wend
+
+  Return aLineas
+
+End
+
+' ============================================
+' Función   : NombreDeIndice
+' Propósito : Traduce el índice del ListBox a nombre de shortcode
+' Parámetros: iIndice As Integer — índice seleccionado
+' Retorna   : String — nombre, o cadena vacía si el índice no es válido
+' ============================================
+Public Function NombreDeIndice(iIndice As Integer) As String
+
+  ' --- 1. GUARDA DE RANGO ---
+  If iIndice < 0 Then Return ""
+  If iIndice >= $aNombres.Count Then Return ""
+
+  Return $aNombres[iIndice]
+
+End
+
+' ============================================
+' Función   : IndiceDeNombre
+' Propósito : Operación inversa, para reponer la selección
+' Parámetros: sNombre As String — nombre buscado
+' Retorna   : Integer — índice en la lista actual, o -1 si no está
+' ============================================
+Public Function IndiceDeNombre(sNombre As String) As Integer
+
+  Return $aNombres.Find(sNombre)
+
+End
+
+' ============================================
+' Función   : LeerShortcode
+' Propósito : Trae un shortcode completo desde la base
+' Parámetros: sNombre As String — nombre del shortcode
+' Retorna   : CShortcode — objeto poblado, o Null si no existe
+' ============================================
+Public Function LeerShortcode(sNombre As String) As CShortcode
+
+  Dim rFila As Result
+
+  ' --- 1. VALIDACIÓN DE ENTRADA ---
+  If sNombre = "" Then Return Null
+
+  ' --- 2. CONSULTA ---
+  Try rFila = m_Base.hConn.Exec("SELECT * FROM shortcodes WHERE nombre = &1", sNombre)
+  If Error Then
+    Message.Error("No se pudo leer el shortcode " & sNombre & Chr(10) & Error.Text)
+    Return Null
+  Endif
+
+  If Not rFila.Available Then Return Null
+
+  Return ObjetoDeFila(rFila)
+
+End
+
+' ============================================
+' Función   : LeerCatalogo
+' Propósito : Trae los shortcodes en el orden del catálogo. Lo usan las
+'             exportaciones, que no deben armar su propia consulta: el
+'             orden tiene que ser uno solo.
+' Parámetros: sFiltro As String — token del filtro
+' Retorna   : CShortcode[] — los shortcodes; Null si falló la consulta
+' ============================================
+Public Function LeerCatalogo(sFiltro As String) As CShortcode[]
+
+  Dim aSalida As New CShortcode[]
+  Dim rFilas As Result
+  Dim oFila As CShortcode
+  Dim sSQL As String
+  Dim sCondicion As String
+
+  ' --- 1. CONSULTA ---
+  sSQL = "SELECT * FROM shortcodes"
+  sCondicion = CondicionDeFiltro(sFiltro)
+  If sCondicion <> "" Then sSQL &= " WHERE " & sCondicion
+  sSQL &= " ORDER BY " & ORDEN_CATALOGO
+
+  Try rFilas = m_Base.hConn.Exec(sSQL)
+  If Error Then
+    Message.Error("No se pudo leer el catálogo." & Chr(10) & Error.Text)
+    Return Null
+  Endif
+
+  ' --- 2. TRASVASE: New VA A UNA VARIABLE ANTES DEL Add (GV-32) ---
+  While rFilas.Available
+    oFila = ObjetoDeFila(rFilas)
+    aSalida.Add(oFila)
+    rFilas.MoveNext
+  Wend
+
+  Return aSalida
+
+End
+
+' ============================================
+' Función   : ObjetoDeFila
+' Propósito : Pasa la fila actual de un Result a un CShortcode
+' Parámetros: rFila As Result — cursor posicionado en la fila
+' Retorna   : CShortcode — objeto poblado
+' ============================================
+Private Function ObjetoDeFila(rFila As Result) As CShortcode
+
+  Dim oFila As New CShortcode
+
+  ' --- 1. CAMPOS NOT NULL ---
+  oFila.iId = rFila["id_shortcode"]
+  oFila.sNombre = rFila["nombre"]
+  oFila.sEtiqueta = rFila["etiqueta"]
+  oFila.sTipo = rFila["tipo"]
+  oFila.sGrupo = rFila["grupo"]
+  oFila.iOrden = rFila["orden"]
+  oFila.sEstadoLibro = rFila["estado_libro"]
+  oFila.sEstadoRevista = rFila["estado_revista"]
+  oFila.sModo = rFila["modo"]
+  oFila.sApertura = rFila["apertura"]
+  oFila.sCierre = rFila["cierre"]
+
+  ' --- 2. CAMPOS NULABLES: CADENA VACÍA SI NO HAY DATO ---
+  oFila.sPerfil = TextoDe(rFila["perfil"])
+  oFila.sQueEs = TextoDe(rFila["que_es"])
+  oFila.sEjemplo = TextoDe(rFila["ejemplo"])
+  oFila.sComoSale = TextoDe(rFila["como_sale"])
+  oFila.sMapeoDocbook = TextoDe(rFila["mapeo_docbook"])
+  oFila.sMapeoJats = TextoDe(rFila["mapeo_jats"])
+  oFila.sNotas = TextoDe(rFila["notas"])
+  oFila.sPendiente = TextoDe(rFila["pendiente"])
+
+  Return oFila
+
+End
+
+' ============================================
+' Función   : GuardarShortcode
+' Propósito : Persiste los campos de texto de un shortcode existente.
+'             Patrón Edit + Update: son más de nueve campos (RC-GM-15).
+'             Solo escribe lo que la aplicación permite pulir.
+' Parámetros: oFila As CShortcode — objeto con los valores nuevos
+' Retorna   : Boolean — True si el UPDATE se aplicó
+' ============================================
+Public Function GuardarShortcode(oFila As CShortcode) As Boolean
+
+  Dim rEdicion As Result
+
+  ' --- 1. VALIDACIÓN DE ENTRADA ---
+  If IsNull(oFila) Then Return False
+  If oFila.iId <= 0 Then Return False
+
+  ' --- 2. APERTURA DEL REGISTRO EN MODO EDICIÓN ---
+  Try rEdicion = m_Base.hConn.Edit("shortcodes", "id_shortcode = &1", oFila.iId)
+  If Error Then
+    Message.Error("No se pudo abrir el shortcode para edición." & Chr(10) & Error.Text)
+    Return False
+  Endif
+
+  ' --- 3. ASIGNACIÓN POR NOMBRE ---
+  ' LOS TEXTOS LARGOS SE GUARDAN SIN \r: UN .md PEGADO DESDE OTRO
+  ' SISTEMA NO DEBE LLEGAR ASÍ A LA EXPORTACIÓN (SC-02)
+  With rEdicion
+    !etiqueta = oFila.sEtiqueta
+    ' LA SECCIÓN VACÍA VA COMO NULL: ASIGNAR "" A UN CAMPO ESCRIBE NULL
+    ' IGUAL (GV-68), ASÍ QUE LA TABLA LO ADMITE Y ESTO LO HACE EXPLÍCITO
+    !que_es = NuloSiVacio(SinRetornos(oFila.sQueEs))
+    !ejemplo = NuloSiVacio(SinRetornos(oFila.sEjemplo))
+    !como_sale = NuloSiVacio(SinRetornos(oFila.sComoSale))
+    !mapeo_docbook = NuloSiVacio(oFila.sMapeoDocbook)
+    !mapeo_jats = NuloSiVacio(oFila.sMapeoJats)
+    !notas = NuloSiVacio(SinRetornos(oFila.sNotas))
+    !pendiente = NuloSiVacio(SinRetornos(oFila.sPendiente))
+    !fecha_modificacion = Format$(Now, "yyyy-mm-dd hh:nn:ss")
+  End With
+
+  ' --- 4. ESCRITURA ---
+  ' EL MENSAJE DEL DRIVER NO DICE QUÉ RESTRICCIÓN FALLÓ (GV-29): LAS
+  ' GUARDAS CON MENSAJE PROPIO ESTÁN EN FMain, ANTES DE LLEGAR ACÁ
+  Try rEdicion.Update()
+  If Error Then
+    Message.Error("No se pudo guardar el shortcode." & Chr(10) & Error.Text)
+    Return False
+  Endif
+
+  Return True
+
+End
+
+' ============================================
+' Función   : TextoDe
+' Propósito : Convierte un campo nulable en cadena
+' Parámetros: vValor As Variant — valor leído de la base
+' Retorna   : String — el valor, o cadena vacía si es NULL
+' ============================================
+Private Function TextoDe(vValor As Variant) As String
+
+  If IsNull(vValor) Then Return ""
+  Return vValor
+
+End
+
+' ============================================
+' Función   : NuloSiVacio
+' Propósito : Convierte cadena vacía en NULL para los campos opcionales,
+'             de modo que la base distinga "sin dato" de "dato vacío".
+' Parámetros: sValor As String — valor de la UI
+' Retorna   : Variant — el valor, o Null si estaba vacío
+' ============================================
+Private Function NuloSiVacio(sValor As String) As Variant
+
+  If Trim$(sValor) = "" Then Return Null
+  Return sValor
+
+End
+
+' ============================================
+' Función   : SinRetornos
+' Propósito : Quita los retornos de carro de un texto
+' Parámetros: sTexto As String — texto de la UI
+' Retorna   : String — el texto con saltos LF solamente
+' ============================================
+Public Function SinRetornos(sTexto As String) As String
+
+  Return Replace(sTexto, Chr(13), "")
+
+End

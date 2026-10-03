@@ -1,0 +1,307 @@
+# Gambas Form File 3.0
+
+{ Form Form
+  Move(0,0,1062,684)
+  #Scaled = False
+  Expand = True
+  Text = ("Catálogo de shortcodes")
+  Resizable = False
+  Maximized = True
+  Arrangement = Arrange.Horizontal
+  Spacing = True
+  Margin = True
+  Padding = 4
+  { mnuCatalogo Menu
+    Text = ("Catálogo")
+    { mnuImpSQL Menu
+      Text = ("Importar UPDATE SQL")
+    }
+    { mnuSep1 Menu
+    }
+    { mnuExpPaquete Menu
+      Text = ("Exportar al paquete de gbpublisher")
+    }
+    { mnuExpPruebaLibro Menu
+      Text = ("Exportar documento de prueba (libros)")
+    }
+    { mnuExpPruebaRevista Menu
+      Text = ("Exportar documento de prueba (revistas)")
+    }
+    { mnuExpVolcado Menu
+      Text = ("Exportar volcado SQL")
+    }
+    { mnuSep2 Menu
+    }
+    { mnuUbicacion Menu
+      Text = ("Ubicación de la base")
+    }
+    { mnuSep3 Menu
+    }
+    { mnuCerrarApp Menu
+      Text = ("Cerrar la aplicación")
+      Picture = Picture["iconos/salir.png"]
+    }
+  }
+  { hspPrincipal Splitter
+    Move(9,0,1476,621)
+    Expand = True
+    Border = False
+    { vbxIzquierda VBox
+      Move(9,54,279,558)
+      Expand = True
+      Spacing = True
+      Margin = True
+      Padding = 4
+      { cmbFiltro ComboBox
+        Move(9,18,261,36)
+        ToolTip = ("Filtrar el catálogo")
+        ReadOnly = True
+      }
+      { lstShortcodes ListBox
+        Move(9,99,252,153)
+        Font = Font["IBM Plex Mono"]
+        ToolTip = ("★ liberado en libros o en revistas")
+        Expand = True
+      }
+    }
+    { vbxDerecha VBox
+      Move(297,9,738,603)
+      Expand = True
+      Spacing = True
+      Margin = True
+      Padding = 4
+      { hbxCabecera HBox
+        Move(0,0,720,36)
+        Spacing = True
+        { lblNombre Label
+          Move(0,0,108,36)
+          Alignment = Align.Right
+          Text = ("Nombre:")
+        }
+        { txtNombre TextBox
+          Move(117,0,198,36)
+          Background = Color.Background
+          Foreground = &H0000FF
+          ReadOnly = True
+        }
+        { lblTipo Label
+          Move(324,0,72,36)
+          Alignment = Align.Right
+          Text = ("Tipo:")
+        }
+        { txtTipo TextBox
+          Move(405,0,99,36)
+          Background = Color.Background
+          ReadOnly = True
+        }
+        { lblModo Label
+          Move(513,0,72,36)
+          Alignment = Align.Right
+          Text = ("Modo:")
+        }
+        { txtModo TextBox
+          Move(594,0,108,36)
+          Background = Color.Background
+          ReadOnly = True
+        }
+      }
+      { hbxEtiqueta HBox
+        Move(0,36,720,36)
+        Spacing = True
+        { lblEtiqueta Label
+          Move(0,0,108,36)
+          Alignment = Align.Right
+          Text = ("Etiqueta:")
+        }
+        { txtEtiqueta TextBox
+          Move(117,0,144,36)
+          ToolTip = ("Lo que se ve en la lista de gbpublisher")
+          Expand = True
+        }
+      }
+      { hbxEstados HBox
+        Move(0,72,720,36)
+        Spacing = True
+        { lblGrupo Label
+          Move(0,0,108,36)
+          Alignment = Align.Right
+          Text = ("Grupo:")
+        }
+        { txtGrupo TextBox
+          Move(117,0,180,36)
+          Background = Color.Background
+          Expand = True
+          ReadOnly = True
+        }
+        { lblLibro Label
+          Move(306,0,72,36)
+          Alignment = Align.Right
+          Text = ("Libros:")
+        }
+        { txtEstadoLibro TextBox
+          Move(387,0,108,36)
+          Background = Color.Background
+          ReadOnly = True
+        }
+        { lblRevista Label
+          Move(504,0,81,36)
+          Alignment = Align.Right
+          Text = ("Revistas:")
+        }
+        { txtEstadoRevista TextBox
+          Move(594,0,108,36)
+          Background = Color.Background
+          ReadOnly = True
+        }
+      }
+      { hbxSintaxis HBox
+        Move(0,108,720,36)
+        Spacing = True
+        { lblApertura Label
+          Move(0,0,108,36)
+          Alignment = Align.Right
+          Text = ("Apertura:")
+        }
+        { txtApertura TextBox
+          Move(117,0,207,36)
+          Background = Color.Background
+          ToolTip = ("⏎ marca un salto de línea")
+          Expand = True
+          ReadOnly = True
+        }
+        { lblCierre Label
+          Move(333,0,72,36)
+          Alignment = Align.Right
+          Text = ("Cierre:")
+        }
+        { txtCierre TextBox
+          Move(414,0,180,36)
+          Background = Color.Background
+          ReadOnly = True
+        }
+      }
+      { tabDetalle TabStrip
+        Move(18,153,693,189)
+        Expand = True
+        Arrangement = Arrange.Fill
+        Spacing = True
+        Margin = True
+        Padding = 4
+        Count = 6
+        Index = 0
+        Text = ("Qué es")
+        { txaQueEs TextArea
+          Move(9,27,261,81)
+          Font = Font["IBM Plex Mono"]
+          ToolTip = ("Markdown: párrafos, listas, énfasis, código y enlaces")
+          Expand = True
+          Wrap = True
+        }
+        Index = 1
+        Text = ("Ejemplo")
+        { txaEjemplo TextArea
+          Move(9,27,261,81)
+          Font = Font["IBM Plex Mono"]
+          ToolTip = ("El ejemplo tal como se escribe en el .md")
+          Expand = True
+        }
+        Index = 2
+        Text = ("Cómo sale")
+        { txaComoSale TextArea
+          Move(9,27,261,81)
+          Font = Font["IBM Plex Mono"]
+          ToolTip = ("Markdown: párrafos, listas, énfasis, código y enlaces")
+          Expand = True
+          Wrap = True
+        }
+        Index = 3
+        Text = ("Vista previa")
+        { txtPrevia TextEdit
+          Move(9,27,261,81)
+          Font = Font["IBM Plex Mono"]
+          Expand = True
+          ReadOnly = True
+          Wrap = True
+        }
+        Index = 4
+        Text = ("Notas internas")
+        { vbxInternas VBox
+          Move(9,9,657,144)
+          Spacing = True
+          { hbxMapeos HBox
+            Move(0,0,549,36)
+            Spacing = True
+            { lblDocbook Label
+              Move(0,0,81,36)
+              Alignment = Align.Right
+              Text = ("DocBook:")
+            }
+            { txtMapeoDocbook TextBox
+              Move(90,0,81,36)
+              Expand = True
+            }
+            { lblJats Label
+              Move(180,0,54,36)
+              Alignment = Align.Right
+              Text = ("JATS:")
+            }
+            { txtMapeoJats TextBox
+              Move(243,0,63,36)
+              Expand = True
+            }
+          }
+          { txaNotas TextArea
+            Move(0,45,306,90)
+            Font = Font["IBM Plex Mono"]
+            Expand = True
+            Wrap = True
+          }
+        }
+        Index = 5
+        Text = ("Terminal")
+        { trmImportar TerminalView
+          Move(18,9,279,90)
+          Font = Font["IBM Plex Mono"]
+        }
+        Index = 0
+      }
+      { hbxPendiente HBox
+        Move(9,351,720,108)
+        Spacing = True
+        { lblPendiente Label
+          Move(0,0,108,36)
+          Alignment = Align.Right
+          Text = ("Pendiente:")
+        }
+        { txaPendiente TextArea
+          Move(117,0,189,90)
+          Font = Font["IBM Plex Mono"]
+          Expand = True
+          Wrap = True
+          ScrollBar = Scroll.Vertical
+        }
+      }
+      { hbxAviso HBox
+        Move(9,468,720,36)
+        Spacing = True
+        { lblAviso Label
+          Move(0,0,171,36)
+          Expand = True
+          Alignment = Align.Center
+        }
+      }
+      { hbxBotones HBox
+        Move(9,513,720,36)
+        Spacing = True
+        { btnGuardar Button
+          Move(9,0,144,36)
+          Text = ("Guardar")
+          Picture = Picture["iconos/guardar.png"]
+        }
+        { Spring1 Spring
+          Move(261,0,36,36)
+        }
+      }
+    }
+  }
+}
