@@ -1,6 +1,6 @@
 # Gambas Project File 3.0
 Startup=FMain
-Version=0.0.4
+Version=0.0.5
 Component=gb.db2
 Component=gb.image
 Component=gb.settings
@@ -19,8 +19,8 @@ Vendor=alberto moyano
 Address=alberto.alejandro.moyano@gmail.com
 Url=https://github.com/albertomoyano/gbShortcodes
 License=General Public License
-PackageName=gbshortcodes-0.0.4
-PackageLastVersion="0.0.4"
+PackageName=gbshortcodes-0.0.5
+PackageLastVersion="0.0.5"
 Packager=1
 Systems=ubuntu
 SameDependencies=1
