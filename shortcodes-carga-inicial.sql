@@ -9,7 +9,7 @@
 -- borrador donde aplicaba y en no_aplica donde no.
 -- Los ejemplos que Pandoc no lee como se espera llevan pendiente.
 -- Los ejemplos de bloque llevan el cierre nombrado (SC-33).
--- Esquema: 2
+-- Esquema: 3
 -- ============================================================
 
 BEGIN TRANSACTION;
@@ -80,14 +80,16 @@ El botón pide la imagen, la copia a `media/` y escribe el bloque completo. El i
 
 En un libro, el número es el del PDF en las tres salidas: 2.3 en un capítulo numerado, A.1 en un apéndice, y 1, 2, 3 dentro de una pieza sin número, como la Introducción.
 
-En un libro se cita con `@fig-mapa`: sale solo el número, como enlace, y la palabra («figura», «fig.») la escribe el editor. Con `alt="..."` en la apertura, ese texto describe la imagen en el EPUB; si falta, se usa el pie.', NULL, 'fig', 'Atributos requeridos (MySQL): id
+En un libro se cita con `@fig-mapa`: sale solo el número, como enlace, y la palabra («figura», «fig.») la escribe el editor. En una revista no hay referencia cruzada: cada artículo es autónomo, y la mención a la figura la escribe el autor como texto («figura 2»); un `@fig-…` en un artículo detiene la conversión.
+
+Con `alt="..."` en la apertura, ese texto describe la imagen en el EPUB; si falta, se usa el pie.', NULL, 'fig', 'Atributos requeridos (MySQL): id
 
 Plantilla JATS (MySQL, sin uso):
 <fig id="{{id}}">
   <label>{{label}}</label>
   <caption><p>{{caption}}</p></caption>
   <graphic xlink:href="{{archivo}}"/>
-</fig>', 'Revistas: @fig-... no es referencia cruzada; cite-to-xref.lua lo trata como cita bibliográfica.', datetime('now','localtime'), datetime('now','localtime'));
+</fig>', NULL, datetime('now','localtime'), datetime('now','localtime'));
 INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES ('fig-fullwidth', 'fig', 'Figura ancho total', 'bloque', 'comun', NULL, 60, 'no_aplica', 'borrador', 'figura', '::: {.fig #fig-id .fullwidth}', ':::', 'Imagen, gráfico o ilustración que ocupa el ancho completo de la página (columna de texto + columna lateral). Se centra automáticamente en el espacio disponible.', '::: {.fig #fig-mapa .fullwidth}
 ![Pie de la figura](media/fig-mapa.png)
 

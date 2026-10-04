@@ -1,6 +1,7 @@
 -- ============================================
 -- shortcodes.sqlite — CATÁLOGO DE SHORTCODES DE GBPUBLISHER
--- Esquema versión 2 (la 2 agrega clase)
+-- Esquema versión 3 (la 2 agrega clase; la 3, el modo dos-partes y la
+-- regla de liberación)
 -- Creación manual:  sqlite3 shortcodes.sqlite < shortcodes_esquema.sql
 -- La aplicación crea la base sola en el primer arranque, con este
 -- mismo DDL (m_Base.SentenciasDDL). Si se cambia uno, se cambia el otro.
@@ -31,7 +32,7 @@ CREATE TABLE shortcodes (
   estado_revista     TEXT    NOT NULL DEFAULT 'no_aplica'
                      CHECK (estado_revista IN ('no_aplica','borrador','liberado')),
   modo               TEXT    NOT NULL DEFAULT 'envolver'
-                     CHECK (modo IN ('envolver','plantilla','figura')),
+                     CHECK (modo IN ('envolver','plantilla','figura','dos-partes')),
   apertura           TEXT    NOT NULL CHECK (apertura <> ''),
   cierre             TEXT    NOT NULL CHECK (cierre <> ''),
   -- LOS TRES TEXTOS DE LA AYUDA ADMITEN NULL A PROPÓSITO: GAMBAS ESCRIBE
@@ -54,7 +55,14 @@ CREATE TABLE shortcodes (
   CHECK (modo <> 'figura' OR tipo = 'bloque'),
   -- LO LIBERADO SE MUESTRA EN LA AYUDA: SIN HUECOS
   CHECK ((estado_libro <> 'liberado' AND estado_revista <> 'liberado')
-         OR (que_es IS NOT NULL AND ejemplo IS NOT NULL AND como_sale IS NOT NULL))
+         OR (que_es IS NOT NULL AND ejemplo IS NOT NULL AND como_sale IS NOT NULL)),
+  -- LIBERADO ES TERMINADO: SIN PENDIENTES (SC-34)
+  CHECK ((estado_libro <> 'liberado' AND estado_revista <> 'liberado')
+         OR pendiente IS NULL),
+  -- SE LIBERA PARA LOS DOS PRODUCTOS, O PARA UNO SI EL OTRO NO APLICA:
+  -- NUNCA LIBERADO EN UNO Y BORRADOR EN EL OTRO (SC-34)
+  CHECK (NOT (estado_libro = 'liberado' AND estado_revista = 'borrador')
+         AND NOT (estado_revista = 'liberado' AND estado_libro = 'borrador'))
 );
 
 CREATE INDEX ix_shortcodes_orden ON shortcodes (grupo, perfil, orden);
@@ -66,4 +74,4 @@ CREATE TABLE esquema_version (
   fecha   TEXT    NOT NULL
 );
 
-INSERT INTO esquema_version (version, fecha) VALUES (2, date('now'));
+INSERT INTO esquema_version (version, fecha) VALUES (3, date('now'));

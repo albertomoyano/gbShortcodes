@@ -11,7 +11,7 @@
 
 Public hConn As Connection
 
-Public Const VERSION_ESQUEMA As Integer = 2
+Public Const VERSION_ESQUEMA As Integer = 3
 Public Const NOMBRE_BASE As String = "shortcodes.sqlite"
 Public Const TIPO_DRIVER As String = "sqlite3"
 
@@ -268,7 +268,7 @@ Private Function SentenciasDDL() As String[]
     "estado_revista TEXT NOT NULL DEFAULT 'no_aplica' " &
     "CHECK (estado_revista IN ('no_aplica','borrador','liberado')), " &
     "modo TEXT NOT NULL DEFAULT 'envolver' " &
-    "CHECK (modo IN ('envolver','plantilla','figura')), " &
+    "CHECK (modo IN ('envolver','plantilla','figura','dos-partes')), " &
     "apertura TEXT NOT NULL CHECK (apertura <> ''), " &
     "cierre TEXT NOT NULL CHECK (cierre <> ''), " &
     "que_es TEXT CHECK (que_es <> ''), " &
@@ -284,7 +284,11 @@ Private Function SentenciasDDL() As String[]
     "CHECK (estado_libro <> 'no_aplica' OR estado_revista <> 'no_aplica'), " &
     "CHECK (modo <> 'figura' OR tipo = 'bloque'), " &
     "CHECK ((estado_libro <> 'liberado' AND estado_revista <> 'liberado') " &
-    "OR (que_es IS NOT NULL AND ejemplo IS NOT NULL AND como_sale IS NOT NULL)))")
+    "OR (que_es IS NOT NULL AND ejemplo IS NOT NULL AND como_sale IS NOT NULL)), " &
+    "CHECK ((estado_libro <> 'liberado' AND estado_revista <> 'liberado') " &
+    "OR pendiente IS NULL), " &
+    "CHECK (NOT (estado_libro = 'liberado' AND estado_revista = 'borrador') " &
+    "AND NOT (estado_revista = 'liberado' AND estado_libro = 'borrador')))")
 
   ' --- 2. ÍNDICE DEL ORDEN DEL CATÁLOGO ---
   aDDL.Add("CREATE INDEX ix_shortcodes_orden ON shortcodes (grupo, perfil, orden)")
