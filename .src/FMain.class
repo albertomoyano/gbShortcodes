@@ -466,30 +466,30 @@ Public Sub mnuImpSQL_Click()
 
 End
 
-' ============================================
-' Función   : RutaImportador
-' Propósito : Ubica el script importador: primero la instalación del
-'             sistema, después la carpeta del proyecto (IDE).
+' Propósito : Ubica el script importador: desde el IDE, el de .hidden/engine
+'             del proyecto; instalado, el de /usr/share/gbshortcodes. Mismo
+'             criterio que m_InicioCierre.RutaRecursos de gbpublisher (SC-11).
 ' Parámetros: ninguno
 ' Retorna   : String — ruta absoluta, o cadena vacía si no está
 ' ============================================
 Private Function RutaImportador() As String
 
-  Dim sRutaSistema As String
   Dim sRutaProyecto As String
+  Dim sRutaSistema As String
 
-  ' --- 1. INSTALACIÓN DEL SISTEMA, QUE ES LA FUENTE DE VERDAD (SC-11) ---
+  ' --- 1. EJECUCIÓN DESDE EL IDE: EL SCRIPT DEL PROYECTO ---
+  ' VA PRIMERO: SI NO, CON UN PAQUETE INSTALADO EL IDE CORRE EL SCRIPT DEL
+  ' PAQUETE, QUE PUEDE SER DE OTRA VERSIÓN
+  sRutaProyecto = Application.Path &/ ".hidden" &/ RUTA_IMPORTADOR
+  If Exist(sRutaProyecto) Then Return sRutaProyecto
+
+  ' --- 2. INSTALACIÓN DEL SISTEMA ---
   sRutaSistema = CARPETA_SISTEMA &/ RUTA_IMPORTADOR
   If Exist(sRutaSistema) Then Return sRutaSistema
 
-  ' --- 2. EJECUCIÓN DESDE EL IDE ---
-  ' INSTALADO, Application.Path ES /usr/bin: POR ESO NO VA PRIMERO
-  sRutaProyecto = Application.Path &/ RUTA_IMPORTADOR
-  If Exist(sRutaProyecto) Then Return sRutaProyecto
-
   ' --- 3. AUSENCIA: SE DICE CON LAS DOS RUTAS A LA VISTA ---
   Message.Error("No se encontró el importador. Se buscó en:" & Chr(10) & Chr(10) &
-    sRutaSistema & Chr(10) & sRutaProyecto)
+    sRutaProyecto & Chr(10) & sRutaSistema)
 
   Return ""
 
