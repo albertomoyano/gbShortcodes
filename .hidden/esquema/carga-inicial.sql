@@ -1,15 +1,14 @@
 -- ============================================================
--- Carga inicial del catálogo de shortcodes
+-- carga-inicial: el catálogo completo de shortcodes, en el esquema 4
 -- ------------------------------------------------------------
--- Da de alta: los 77 shortcodes de la tabla shortcodes de MySQL,
--- tomados de gbpublisher-baseline-1.0.0.sql.
+-- Para una base nueva, vacía: la aplicación la ofrece al abrir una base
+-- sin shortcodes. Es el estado del catálogo al pasar a la versión 4: la
+-- carga original de los 77 shortcodes de MySQL más datos-v3-001 (el
+-- epígrafe) y datos-v3-002 (la figura de ancho completo). Una base que
+-- ya tiene datos no la usa: se migra y sigue con los datos-v4-*.
 -- Modifica: nada. Exige la base vacía.
---
--- Liberada solo la figura (libro y revista). El resto queda en
--- borrador donde aplicaba y en no_aplica donde no.
--- Los ejemplos que Pandoc no lee como se espera llevan pendiente.
--- Los ejemplos de bloque llevan el cierre nombrado (SC-33).
--- Esquema: 3
+-- Liberados: epigraph, figure, fig-fullwidth.
+-- Esquema: 4
 -- ============================================================
 
 BEGIN TRANSACTION;
@@ -48,16 +47,18 @@ Plantilla JATS (MySQL, sin uso):
 {{contenido}}
 ~~~
 </code>', NULL, datetime('now','localtime'), datetime('now','localtime'));
-INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES ('epigraph', 'epigraph', 'Epígrafe', 'bloque', 'comun', NULL, 30, 'borrador', 'borrador', 'envolver', '::: epigraph', ':::', 'Cita breve al inicio de un artículo o sección, generalmente de otro autor, que introduce o contextualiza el tema.', '::: epigraph
-El conocimiento es poder.
-— Francis Bacon
+INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES ('epigraph', 'epigraph', 'Epígrafe', 'bloque', 'comun', NULL, 30, 'liberado', 'liberado', 'dos-partes', '::: epigraph', ':::', 'Cita breve al comienzo de un capítulo, un artículo o una sección, con su atribución.
+
+Se escribe en dos partes entre llaves, pegadas: `{texto}{atribución}`. Las llaves las escribe quien marca; después se selecciona todo y se aplica el shortcode, que controla la forma antes de insertar. Las dos partes admiten bastardilla, negrita, rayas y citas. La atribución puede quedar vacía: `{texto}{}`.', '::: epigraph
+
+{El conocimiento es *poder*.}{Francis Bacon, *Meditationes sacrae*}
 
 [/epigraph]: # ()
-:::', NULL, NULL, 'disp-quote', 'Plantilla JATS (MySQL, sin uso):
-<disp-quote content-type="epigraph">
-  <p>{{contenido}}</p>
-  <attrib>{{atribucion}}</attrib>
-</disp-quote>', NULL, datetime('now','localtime'), datetime('now','localtime'));
+:::', 'Sale a la derecha, en un bloque del 60 % del ancho de la columna, en letra menor y sin corte de palabra: el texto alineado a la izquierda, un filete de 0,6 pt y la atribución alineada a la derecha. Sin atribución no hay filete.
+
+Es igual en libros y revistas, y en el PDF, el EPUB y el HTML. En el ODT salen el texto y la atribución como dos párrafos con su estilo.
+
+El texto puede tener varios párrafos; la atribución, uno solo. Un epígrafe que no tiene la forma `{…}{…}` detiene la conversión con un mensaje.', 'epigraph', 'disp-quote specific-use="epigraph"', 'Lo parte dos-partes.lua en las tres cadenas (revista, libro y ODT). Libro: <epigraph><attribution>; revista: <disp-quote specific-use="epigraph"><attrib>. PDF: \gbepigrafe, en preambulo-contrato.tex y en m_XML.ObtenerPreambuloEmbebido (gemelas). ODT: estilos gbEpigrafe y gbEpigrafeAtrib de reference.ott.', NULL, datetime('now','localtime'), datetime('now','localtime'));
 INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES ('case-study', 'case', 'Estudio de caso', 'bloque', 'comun', NULL, 40, 'borrador', 'borrador', 'envolver', '::: {.case id=""}', ':::', 'Descripción de caso analizado con identificador.', '::: {.case id="Empresa-Alpha"}
 **Contexto**: Empresa mediana del sector manufacturero...
 **Problema**: Caída de productividad del 15%...
@@ -90,13 +91,17 @@ Plantilla JATS (MySQL, sin uso):
   <caption><p>{{caption}}</p></caption>
   <graphic xlink:href="{{archivo}}"/>
 </fig>', NULL, datetime('now','localtime'), datetime('now','localtime'));
-INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES ('fig-fullwidth', 'fig', 'Figura ancho total', 'bloque', 'comun', NULL, 60, 'no_aplica', 'borrador', 'figura', '::: {.fig #fig-id .fullwidth}', ':::', 'Imagen, gráfico o ilustración que ocupa el ancho completo de la página (columna de texto + columna lateral). Se centra automáticamente en el espacio disponible.', '::: {.fig #fig-mapa .fullwidth}
+INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES ('fig-fullwidth', 'fig', 'Figura ancho total', 'bloque', 'comun', NULL, 60, 'no_aplica', 'liberado', 'figura', '::: {.fig #fig-id .fullwidth}', ':::', 'Imagen con su pie que, en el PDF de la revista, ocupa el ancho de la caja más la columna lateral. Es solo de revistas: el libro no tiene columna lateral.
+
+El botón pide la imagen, la copia a `media/` y escribe el bloque completo, con `.fullwidth`. El identificador sale del nombre del archivo: `mapa.png` da `#fig-mapa`. Queda reemplazar el texto provisorio del pie, que es obligatorio.', '::: {.fig #fig-mapa .fullwidth}
 ![Pie de la figura](media/fig-mapa.png)
 
 [/fig]: # ()
-:::', NULL, NULL, 'fig', 'Atributos requeridos (MySQL): #fig-id (identificador único)
+:::', 'En el PDF ocupa el ancho de la caja más la columna lateral, centrada en ese espacio, con su número y su pie como una figura común.
 
-Requiere clase .fullwidth además de .fig. El filtro cite-to-xref.lua detecta la clase y agrega specific-use="fullwidth" al <fig> en JATS. El XSLT usa adjustwidth para extender al margen derecho.', NULL, datetime('now','localtime'), datetime('now','localtime'));
+En el HTML, el EPUB y el ODT sale como una figura común, al ancho de la columna: en pantalla no hay columna lateral.
+
+El pie admite formato y citas. Con `alt="..."` en la apertura, ese texto describe la imagen en el EPUB; si falta, se usa el pie. En una revista no hay referencia cruzada: la mención a la figura la escribe el autor como texto («figura 2»).', NULL, 'fig', 'Revista: cite-to-xref.lua arma el <fig specific-use="fullwidth"> (SC-32); jats-to-latex.xsl lo compone con adjustwidth hasta el borde de la columna lateral. jats-to-html.xsl y jats-to-epub.xsl no lo distinguen de una figura común.', NULL, datetime('now','localtime'), datetime('now','localtime'));
 INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES ('glossary', 'glossary', 'Glosario', 'bloque', 'comun', NULL, 70, 'borrador', 'borrador', 'envolver', '::: {.glossary term=""}', ':::', 'Definición de término técnico o especializado.', '::: {.glossary term="Hermenéutica"}
 Método de interpretación de textos que busca comprender el significado
 a partir del contexto histórico y cultural del autor.
@@ -693,12 +698,10 @@ En un matraz de 250 mL se añadieron...
 :::', NULL, NULL, 'sec', 'Plantilla JATS (MySQL, sin uso):
 <sec sec-type="experimental-procedure"><title>Procedimiento</title>{{contenido}}</sec>', NULL, datetime('now','localtime'), datetime('now','localtime'));
 
--- LAS 77 FILAS, Y LA FIGURA LIBERADA EN LOS DOS
+-- LAS 77 FILAS Y LOS LIBERADOS
 INSERT INTO _verif SELECT 'filas cargadas', COUNT(*) = 77 FROM shortcodes;
-INSERT INTO _verif SELECT 'liberados', COUNT(*) = 1 FROM shortcodes
+INSERT INTO _verif SELECT 'liberados', COUNT(*) = 3 FROM shortcodes
   WHERE estado_libro = 'liberado' OR estado_revista = 'liberado';
-INSERT INTO _verif SELECT 'figura liberada', COUNT(*) = 1 FROM shortcodes
-  WHERE nombre = 'figure' AND estado_libro = 'liberado' AND estado_revista = 'liberado';
 
 DROP TABLE _verif;
 

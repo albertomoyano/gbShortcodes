@@ -1,38 +1,22 @@
--- ============================================
--- shortcodes.sqlite — CATÁLOGO DE SHORTCODES DE GBPUBLISHER
--- Esquema versión 4 (la 2 agrega clase; la 3, la regla de liberación;
--- la 4, la tabla modos: un modo nuevo es un dato, no un cambio de esquema)
--- Creación manual:  sqlite3 shortcodes.sqlite < shortcodes_esquema.sql
--- La aplicación crea la base sola en el primer arranque, con este
--- mismo DDL (m_Base.SentenciasDDL). Si se cambia uno, se cambia el otro.
--- ============================================
+-- ============================================================
+-- Migración del esquema de gbShortcodes de la versión 3 a la 4
+-- ------------------------------------------------------------
+-- Agrega el modo separador: un bloque vacío que se inserta sin
+-- selección y en una línea vacía (SC-36, el froufrou). Es un bloque.
+-- Modifica: la tabla shortcodes, que se rehace con la restricción
+-- nueva (SQLite no cambia un CHECK en su lugar). Los datos no cambian.
+-- Antes de migrar se aplican los scripts de la versión 3 pendientes
+-- (gbshortcodes-act-002.sql): el importador de la 4 ya no los acepta.
+-- Se corre desde una terminal: la aplicación no abre una base v3.
+-- Migración: 3 a 4
+-- Esquema: 3
+-- ============================================================
 
-PRAGMA foreign_keys = ON;
+BEGIN TRANSACTION;
 
--- --- 1. MODOS: CÓMO SE INSERTA UN SHORTCODE, Y CON QUÉ TIPO ---
--- CADA FILA ES UN PAR (modo, tipo) PERMITIDO. AGREGAR UN MODO ES UN
--- SCRIPT DE DATOS, NO UNA MIGRACIÓN; LO QUE HACE CADA MODO AL INSERTAR
--- LO DECIDE gbpublisher (m_Shortcodes.InsertarShortcode).
-CREATE TABLE modos (
-  modo        TEXT NOT NULL CHECK (modo <> '' AND modo NOT GLOB '*[^a-z-]*'),
-  tipo        TEXT NOT NULL CHECK (tipo IN ('bloque','linea')),
-  descripcion TEXT NOT NULL CHECK (descripcion <> ''),
-  PRIMARY KEY (modo, tipo)
-);
+CREATE TEMP TABLE _verif (paso TEXT, ok INTEGER CHECK (ok = 1));
 
-INSERT INTO modos (modo, tipo, descripcion) VALUES
-  ('envolver',   'bloque', 'Rodea la selección con la apertura y el cierre.'),
-  ('envolver',   'linea',  'Rodea la selección dentro del párrafo: [texto]{.clase}.'),
-  ('plantilla',  'bloque', 'Inserta apertura, marcador y cierre, sin selección.'),
-  ('plantilla',  'linea',  'Inserta apertura, marcador y cierre dentro del párrafo, sin selección.'),
-  ('figura',     'bloque', 'El camino de FMain.InsertarFigura de gbpublisher (SC-32).'),
-  ('dos-partes', 'bloque', 'Envolver, si la selección tiene la forma {primera}{segunda} (SC-35).');
-
--- --- 2. SHORTCODES: UNA FILA POR SHORTCODE ---
--- LO QUE SE EXPORTA A gbpublisher: nombre, clase, etiqueta, tipo, grupo, perfil,
--- orden, estados, modo, apertura, cierre, que_es, ejemplo, como_sale.
--- LO QUE QUEDA EN gbShortcodes: mapeos, notas y pendiente.
-CREATE TABLE shortcodes (
+CREATE TABLE shortcodes_v4 (
   id_shortcode       INTEGER PRIMARY KEY,
   nombre             TEXT    NOT NULL UNIQUE
                      CHECK (nombre <> '' AND nombre NOT GLOB '*[^a-z0-9-]*'),
@@ -50,8 +34,8 @@ CREATE TABLE shortcodes (
                      CHECK (estado_libro IN ('no_aplica','borrador','liberado')),
   estado_revista     TEXT    NOT NULL DEFAULT 'no_aplica'
                      CHECK (estado_revista IN ('no_aplica','borrador','liberado')),
-  -- EL PAR (modo, tipo) TIENE QUE ESTAR EN modos (CLAVE FORÁNEA ABAJO)
-  modo               TEXT    NOT NULL DEFAULT 'envolver',
+  modo               TEXT    NOT NULL DEFAULT 'envolver'
+                     CHECK (modo IN ('envolver','plantilla','figura','dos-partes','separador')),
   apertura           TEXT    NOT NULL CHECK (apertura <> ''),
   cierre             TEXT    NOT NULL CHECK (cierre <> ''),
   -- LOS TRES TEXTOS DE LA AYUDA ADMITEN NULL A PROPÓSITO: GAMBAS ESCRIBE
@@ -70,6 +54,10 @@ CREATE TABLE shortcodes (
   CHECK ((grupo = 'disciplinar') = (perfil IS NOT NULL)),
   -- UN SHORTCODE QUE NO APLICA A NADA NO TIENE LUGAR EN EL CATÁLOGO
   CHECK (estado_libro <> 'no_aplica' OR estado_revista <> 'no_aplica'),
+  -- LA FIGURA ES UN BLOQUE: ELIGE LA IMAGEN Y ARMA EL div ENTERO
+  CHECK (modo <> 'figura' OR tipo = 'bloque'),
+  -- EL SEPARADOR ES UN BLOQUE VACÍO EN UNA LÍNEA PROPIA (SC-36)
+  CHECK (modo <> 'separador' OR tipo = 'bloque'),
   -- LO LIBERADO SE MUESTRA EN LA AYUDA: SIN HUECOS
   CHECK ((estado_libro <> 'liberado' AND estado_revista <> 'liberado')
          OR (que_es IS NOT NULL AND ejemplo IS NOT NULL AND como_sale IS NOT NULL)),
@@ -79,19 +67,22 @@ CREATE TABLE shortcodes (
   -- SE LIBERA PARA LOS DOS PRODUCTOS, O PARA UNO SI EL OTRO NO APLICA:
   -- NUNCA LIBERADO EN UNO Y BORRADOR EN EL OTRO (SC-34)
   CHECK (NOT (estado_libro = 'liberado' AND estado_revista = 'borrador')
-         AND NOT (estado_revista = 'liberado' AND estado_libro = 'borrador')),
-  -- QUÉ MODOS VALEN PARA CADA TIPO LO DICE LA TABLA modos (LA FIGURA,
-  -- POR EJEMPLO, SOLO EXISTE COMO BLOQUE)
-  FOREIGN KEY (modo, tipo) REFERENCES modos (modo, tipo)
+         AND NOT (estado_revista = 'liberado' AND estado_libro = 'borrador'))
 );
 
+INSERT INTO shortcodes_v4 (id_shortcode, nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion)
+SELECT id_shortcode, nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion FROM shortcodes;
+
+INSERT INTO _verif SELECT 'filas copiadas',
+  (SELECT COUNT(*) FROM shortcodes_v4) = (SELECT COUNT(*) FROM shortcodes);
+
+DROP TABLE shortcodes;
+ALTER TABLE shortcodes_v4 RENAME TO shortcodes;
 CREATE INDEX ix_shortcodes_orden ON shortcodes (grupo, perfil, orden);
 CREATE INDEX ix_shortcodes_clase ON shortcodes (clase);
 
--- --- 3. VERSIÓN DE ESQUEMA ---
-CREATE TABLE esquema_version (
-  version INTEGER NOT NULL,
-  fecha   TEXT    NOT NULL
-);
-
 INSERT INTO esquema_version (version, fecha) VALUES (4, date('now'));
+
+DROP TABLE _verif;
+
+COMMIT;

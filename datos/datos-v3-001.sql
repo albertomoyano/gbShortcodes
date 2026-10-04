@@ -1,5 +1,5 @@
 -- ============================================================
--- gbshortcodes-act-001
+-- datos-v3-001 (antes gbshortcodes-act-001)
 -- ------------------------------------------------------------
 -- Modifica: epigraph. Pasa al modo dos-partes, con la forma
 -- {texto}{atribución} (SC-35), y se libera para libros y revistas.

@@ -41,8 +41,19 @@ Private $hImportacion As Process
 ' DEL SCRIPT Y CONTESTANDO EL PROMPT [s/N] EN EL TERMINAL (GV-42)
 Private Const SEGUNDOS_MAXIMOS As Float = 900.0
 
-' --- UBICACIÓN DEL IMPORTADOR DENTRO DEL PROYECTO ---
+' --- RECURSOS QUE VIAJAN CON EL PROGRAMA (RELATIVOS A .hidden O AL SISTEMA) ---
 Private Const RUTA_IMPORTADOR As String = "engine/importar_shortcodes.sh"
+' LA MIGRACIÓN DE UNA VERSIÓN A LA SIGUIENTE: esquema/esquema-v3-a-v4.sql
+Private Const CARPETA_ESQUEMA As String = "esquema"
+' EL CATÁLOGO COMPLETO PARA UNA BASE NUEVA, EN LA VERSIÓN DE ESTE PROGRAMA
+Private Const CARGA_INICIAL As String = "esquema/carga-inicial.sql"
+
+' --- TAREA DE ARRANQUE: MIGRAR O CARGAR, CON LA VENTANA YA A LA VISTA ---
+' EL IMPORTADOR PREGUNTA [s/N] EN EL TERMINAL: TIENE QUE ESTAR VISIBLE
+Private Const TAREA_MIGRAR As String = "migrar"
+Private Const TAREA_CARGAR As String = "cargar"
+Private $sTareaArranque As String
+Private $hArranque As Timer
 
 ' CARPETA DE RECURSOS DEL SISTEMA. engine/ ES INFRAESTRUCTURA Y NO SE
 ' PERSONALIZA: VIAJA EN EL .deb Y NO SE COPIA A ~/.gbshortcodes (SC-11)
@@ -57,32 +68,171 @@ Private Const CARPETA_SISTEMA As String = "/usr/share/gbshortcodes"
 ' ============================================
 Public Sub Form_Open()
 
-  ' --- 1. INFRAESTRUCTURA: SIN BASE NO HAY APLICACIÓN ---
-  If Not m_Base.Conectar() Then
-    ' m_Base YA INFORMÓ LA CAUSA CONCRETA
-    Quit
-  Endif
-
-  ' --- 2. GEOMETRÍA GUARDADA Y TÍTULO ---
+  ' --- 1. GEOMETRÍA GUARDADA, TÍTULO Y PROPORCIÓN DE LOS PANELES ---
   Settings.Read(Me)
-  Me.Text = "Catálogo de shortcodes — " & m_Base.RutaArchivoBase()
-
-  ' --- 3. PROPORCIÓN DE LOS DOS PANELES ---
+  ActualizarTitulo()
   hspPrincipal.Layout = [1, 2]
 
-  ' --- 4. FILTROS Y LISTA ---
-  CargarComboFiltros()
-  RefrescarLista(m_Catalogo.FILTRO_TODOS)
-
-  ' --- 5. ASPECTO DEL TERMINAL: EXPLÍCITO, NO HEREDADO (GV-42) ---
+  ' --- 2. ASPECTO DEL TERMINAL: EXPLÍCITO, NO HEREDADO (GV-42) ---
   trmImportar.Font.Name = "IBM Plex Mono"
   trmImportar.Font.Size = 12
   trmImportar.Background = Color.RGB(45, 30, 20)
   trmImportar.Foreground = Color.RGB(230, 220, 210)
 
-  ' --- 6. ESTADO INICIAL ---
+  ' --- 3. INFRAESTRUCTURA ---
+  If Not m_Base.Conectar() Then
+    ' UNA VERSIÓN ATRÁS NO ES UN ERROR: SE OFRECE MIGRAR CUANDO LA VENTANA
+    ' YA ESTÉ A LA VISTA. CUALQUIER OTRA FALLA, m_Base YA LA INFORMÓ
+    If m_Base.MigracionPendiente() Then
+      BloquearInterfaz(True)
+      lblAviso.Text = "la base está en el esquema v" & CStr(m_Base.VersionBase()) & ": migración pendiente"
+      ProgramarArranque(TAREA_MIGRAR)
+      Return
+    Endif
+    Quit
+    Return
+  Endif
+
+  ' --- 4. FILTROS Y LISTA ---
+  CargarComboFiltros()
+  RefrescarLista(m_Catalogo.FILTRO_TODOS)
+
+  ' --- 5. ESTADO INICIAL ---
   LimpiarDetalle()
   ActualizarBotones()
+
+  ' --- 6. BASE NUEVA, SIN SHORTCODES: SE OFRECE LA CARGA INICIAL ---
+  If m_Base.BaseVacia() Then ProgramarArranque(TAREA_CARGAR)
+
+End
+
+' ============================================
+' Función   : ActualizarTitulo
+' Propósito : Muestra en el título la versión de esquema y la base, para
+'             saber antes de importar un script de datos a qué versión va
+' Parámetros: ninguno
+' Retorna   : nada
+' ============================================
+Private Sub ActualizarTitulo()
+
+  Me.Text = "Catálogo de shortcodes — esquema v" & CStr(m_Base.VERSION_ESQUEMA) &
+    " — " & m_Base.RutaArchivoBase()
+
+End
+
+' ============================================
+' Función   : ProgramarArranque
+' Propósito : Deja para después de mostrar la ventana una migración o la
+'             carga inicial: el importador pregunta en el terminal, que
+'             tiene que estar a la vista
+' Parámetros: sTarea As String — TAREA_MIGRAR o TAREA_CARGAR
+' Retorna   : nada
+' ============================================
+Private Sub ProgramarArranque(sTarea As String)
+
+  $sTareaArranque = sTarea
+  $hArranque = New Timer As "tmrArranque"
+  $hArranque.Delay = 300
+  $hArranque.Enabled = True
+
+End
+
+' ============================================
+' Función   : tmrArranque_Timer
+' Propósito : Corre una sola vez la tarea de arranque programada
+' Parámetros: ninguno
+' Retorna   : nada
+' ============================================
+Public Sub tmrArranque_Timer()
+
+  ' --- 1. UNA SOLA VEZ ---
+  $hArranque.Enabled = False
+  $hArranque = Null
+
+  ' --- 2. LA TAREA ---
+  Select Case $sTareaArranque
+    Case TAREA_MIGRAR
+      OfrecerMigracion()
+    Case TAREA_CARGAR
+      OfrecerCargaInicial()
+  End Select
+  $sTareaArranque = ""
+
+End
+
+' ============================================
+' Función   : OfrecerMigracion
+' Propósito : Migra la base, que está una versión atrás, con el importador y
+'             el script de migración de este mismo programa: desde el IDE,
+'             los del proyecto; instalado, los del paquete. Sin terminal
+'             externa ni ruta que elegir
+' Parámetros: ninguno
+' Retorna   : nada
+' ============================================
+Private Sub OfrecerMigracion()
+
+  Dim sImportador As String
+  Dim sMigracion As String
+  Dim iDesde As Integer
+  Dim bAplicado As Boolean
+
+  ' --- 1. LO QUE HACE FALTA, DE ESTE MISMO PROGRAMA ---
+  iDesde = m_Base.VersionBase()
+  sImportador = RutaRecurso(RUTA_IMPORTADOR)
+  If sImportador = "" Then
+    Me.Close
+    Return
+  Endif
+  sMigracion = RutaRecurso(CARPETA_ESQUEMA &/ "esquema-v" & CStr(iDesde) & "-a-v" & CStr(m_Base.VERSION_ESQUEMA) & ".sql")
+  If sMigracion = "" Then
+    Me.Close
+    Return
+  Endif
+
+  ' --- 2. CONFIRMACIÓN: SIN MIGRAR, ESTA VERSIÓN NO PUEDE ABRIR LA BASE ---
+  If Message.Question("La base está en el esquema v" & CStr(iDesde) &
+      " y esta versión del programa usa el v" & CStr(m_Base.VERSION_ESQUEMA) & "." & Chr(10) & Chr(10) &
+      "La migración guarda antes un respaldo de la base y, si algo falla, la deja como estaba." & Chr(10) &
+      "En la pestaña Terminal se confirma con s.",
+      "Migrar", "Salir") <> 1 Then
+    Me.Close
+    Return
+  Endif
+
+  ' --- 3. MIGRACIÓN Y REAPERTURA (RecargarTrasImportar CIERRA SI FALLA) ---
+  bAplicado = EjecutarImportacion(sImportador, sMigracion)
+  RecargarTrasImportar(bAplicado)
+
+End
+
+' ============================================
+' Función   : OfrecerCargaInicial
+' Propósito : En una base sin shortcodes, ofrece cargar el catálogo completo
+'             que viaja con este programa
+' Parámetros: ninguno
+' Retorna   : nada
+' ============================================
+Private Sub OfrecerCargaInicial()
+
+  Dim sImportador As String
+  Dim sCarga As String
+  Dim bAplicado As Boolean
+
+  ' --- 1. CONFIRMACIÓN: UNA BASE VACÍA PUEDE SER A PROPÓSITO ---
+  If Message.Question("La base no tiene shortcodes." & Chr(10) & Chr(10) &
+      "¿Cargar el catálogo inicial? En la pestaña Terminal se confirma con s.",
+      "Cargar", "Ahora no") <> 1 Then Return
+
+    ' --- 2. LO QUE HACE FALTA, DE ESTE MISMO PROGRAMA ---
+    sImportador = RutaRecurso(RUTA_IMPORTADOR)
+    If sImportador = "" Then Return
+    sCarga = RutaRecurso(CARGA_INICIAL)
+    If sCarga = "" Then Return
+
+    ' --- 3. CARGA Y RECARGA ---
+    If Not ConfirmarDescartarCambios() Then Return
+    bAplicado = EjecutarImportacion(sImportador, sCarga)
+    RecargarTrasImportar(bAplicado)
 
 End
 
@@ -451,7 +601,7 @@ Public Sub mnuImpSQL_Click()
   If Not ConfirmarDescartarCambios() Then Return
 
   ' --- 3. EL IMPORTADOR TIENE QUE ESTAR DONDE SE LO ESPERA ---
-  sImportador = RutaImportador()
+  sImportador = RutaRecurso(RUTA_IMPORTADOR)
   If sImportador = "" Then Return
 
   ' --- 4. ELECCIÓN DEL ARCHIVO ---
@@ -466,29 +616,31 @@ Public Sub mnuImpSQL_Click()
 
 End
 
-' Propósito : Ubica el script importador: desde el IDE, el de .hidden/engine
-'             del proyecto; instalado, el de /usr/share/gbshortcodes. Mismo
-'             criterio que m_InicioCierre.RutaRecursos de gbpublisher (SC-11).
-' Parámetros: ninguno
+' Propósito : Ubica un recurso que viaja con el programa: desde el IDE, el
+'             de .hidden del proyecto; instalado, el de /usr/share/gbshortcodes.
+'             Así el importador, la migración y la carga inicial siempre son
+'             los de la versión que está corriendo. Mismo criterio que
+'             m_InicioCierre.RutaRecursos de gbpublisher (SC-11).
+' Parámetros: sRelativo As String — ruta dentro de .hidden o del sistema
 ' Retorna   : String — ruta absoluta, o cadena vacía si no está
 ' ============================================
-Private Function RutaImportador() As String
+Private Function RutaRecurso(sRelativo As String) As String
 
   Dim sRutaProyecto As String
   Dim sRutaSistema As String
 
-  ' --- 1. EJECUCIÓN DESDE EL IDE: EL SCRIPT DEL PROYECTO ---
-  ' VA PRIMERO: SI NO, CON UN PAQUETE INSTALADO EL IDE CORRE EL SCRIPT DEL
+  ' --- 1. EJECUCIÓN DESDE EL IDE: EL RECURSO DEL PROYECTO ---
+  ' VA PRIMERO: SI NO, CON UN PAQUETE INSTALADO EL IDE USARÍA EL DEL
   ' PAQUETE, QUE PUEDE SER DE OTRA VERSIÓN
-  sRutaProyecto = Application.Path &/ ".hidden" &/ RUTA_IMPORTADOR
+  sRutaProyecto = Application.Path &/ ".hidden" &/ sRelativo
   If Exist(sRutaProyecto) Then Return sRutaProyecto
 
   ' --- 2. INSTALACIÓN DEL SISTEMA ---
-  sRutaSistema = CARPETA_SISTEMA &/ RUTA_IMPORTADOR
+  sRutaSistema = CARPETA_SISTEMA &/ sRelativo
   If Exist(sRutaSistema) Then Return sRutaSistema
 
   ' --- 3. AUSENCIA: SE DICE CON LAS DOS RUTAS A LA VISTA ---
-  Message.Error("No se encontró el importador. Se buscó en:" & Chr(10) & Chr(10) &
+  Message.Error("No se encontró un archivo del programa. Se buscó en:" & Chr(10) & Chr(10) &
     sRutaProyecto & Chr(10) & sRutaSistema)
 
   Return ""
@@ -656,7 +808,14 @@ End
 Private Sub RecargarTrasImportar(bAplicado As Boolean)
 
   ' --- 1. REAPERTURA: SIN BASE NO HAY APLICACIÓN ---
+  ' UNA MIGRACIÓN QUE NO SE APLICÓ DEJA LA BASE COMO ESTABA: LA VENTANA
+  ' QUEDA ABIERTA Y BLOQUEADA PARA LEER EN EL TERMINAL QUÉ PASÓ
   If Not m_Base.Conectar() Then
+    If m_Base.MigracionPendiente() Then
+      BloquearInterfaz(True)
+      lblAviso.Text = "migración no aplicada — ver la pestaña Terminal; al cerrar y volver a abrir se ofrece de nuevo"
+      Return
+    Endif
     Me.Close
     Return
   Endif

@@ -1,18 +1,21 @@
--- ============================================
--- shortcodes.sqlite — CATÁLOGO DE SHORTCODES DE GBPUBLISHER
--- Esquema versión 4 (la 2 agrega clase; la 3, la regla de liberación;
--- la 4, la tabla modos: un modo nuevo es un dato, no un cambio de esquema)
--- Creación manual:  sqlite3 shortcodes.sqlite < shortcodes_esquema.sql
--- La aplicación crea la base sola en el primer arranque, con este
--- mismo DDL (m_Base.SentenciasDDL). Si se cambia uno, se cambia el otro.
--- ============================================
+-- ============================================================
+-- esquema-v3-a-v4: migración del esquema de gbShortcodes de la 3 a la 4
+-- ------------------------------------------------------------
+-- Agrega la tabla modos: cada par (modo, tipo) permitido es una fila, y
+-- shortcodes la refiere por clave foránea. Desde la 4, un modo nuevo es
+-- un script de datos, no un cambio de esquema.
+-- Modifica: la tabla shortcodes, que se rehace sin la lista de modos en
+-- un CHECK y con la clave foránea. Los datos no cambian.
+-- La corre la propia aplicación al abrir una base v3 (también se puede
+-- correr con el importador de la 4 desde una terminal).
+-- Migración: 3 a 4
+-- Esquema: 3
+-- ============================================================
 
-PRAGMA foreign_keys = ON;
+BEGIN TRANSACTION;
 
--- --- 1. MODOS: CÓMO SE INSERTA UN SHORTCODE, Y CON QUÉ TIPO ---
--- CADA FILA ES UN PAR (modo, tipo) PERMITIDO. AGREGAR UN MODO ES UN
--- SCRIPT DE DATOS, NO UNA MIGRACIÓN; LO QUE HACE CADA MODO AL INSERTAR
--- LO DECIDE gbpublisher (m_Shortcodes.InsertarShortcode).
+CREATE TEMP TABLE _verif (paso TEXT, ok INTEGER CHECK (ok = 1));
+
 CREATE TABLE modos (
   modo        TEXT NOT NULL CHECK (modo <> '' AND modo NOT GLOB '*[^a-z-]*'),
   tipo        TEXT NOT NULL CHECK (tipo IN ('bloque','linea')),
@@ -28,11 +31,11 @@ INSERT INTO modos (modo, tipo, descripcion) VALUES
   ('figura',     'bloque', 'El camino de FMain.InsertarFigura de gbpublisher (SC-32).'),
   ('dos-partes', 'bloque', 'Envolver, si la selección tiene la forma {primera}{segunda} (SC-35).');
 
--- --- 2. SHORTCODES: UNA FILA POR SHORTCODE ---
--- LO QUE SE EXPORTA A gbpublisher: nombre, clase, etiqueta, tipo, grupo, perfil,
--- orden, estados, modo, apertura, cierre, que_es, ejemplo, como_sale.
--- LO QUE QUEDA EN gbShortcodes: mapeos, notas y pendiente.
-CREATE TABLE shortcodes (
+-- CADA SHORTCODE USA UN PAR (modo, tipo) QUE EXISTE
+INSERT INTO _verif SELECT 'pares (modo, tipo) conocidos', COUNT(*) = 0 FROM shortcodes s
+  WHERE NOT EXISTS (SELECT 1 FROM modos m WHERE m.modo = s.modo AND m.tipo = s.tipo);
+
+CREATE TABLE shortcodes_v4 (
   id_shortcode       INTEGER PRIMARY KEY,
   nombre             TEXT    NOT NULL UNIQUE
                      CHECK (nombre <> '' AND nombre NOT GLOB '*[^a-z0-9-]*'),
@@ -85,13 +88,19 @@ CREATE TABLE shortcodes (
   FOREIGN KEY (modo, tipo) REFERENCES modos (modo, tipo)
 );
 
+INSERT INTO shortcodes_v4 (id_shortcode, nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion)
+SELECT id_shortcode, nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion FROM shortcodes;
+
+INSERT INTO _verif SELECT 'filas copiadas',
+  (SELECT COUNT(*) FROM shortcodes_v4) = (SELECT COUNT(*) FROM shortcodes);
+
+DROP TABLE shortcodes;
+ALTER TABLE shortcodes_v4 RENAME TO shortcodes;
 CREATE INDEX ix_shortcodes_orden ON shortcodes (grupo, perfil, orden);
 CREATE INDEX ix_shortcodes_clase ON shortcodes (clase);
 
--- --- 3. VERSIÓN DE ESQUEMA ---
-CREATE TABLE esquema_version (
-  version INTEGER NOT NULL,
-  fecha   TEXT    NOT NULL
-);
-
 INSERT INTO esquema_version (version, fecha) VALUES (4, date('now'));
+
+DROP TABLE _verif;
+
+COMMIT;

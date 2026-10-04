@@ -11,7 +11,13 @@
 
 Public hConn As Connection
 
-Public Const VERSION_ESQUEMA As Integer = 3
+Public Const VERSION_ESQUEMA As Integer = 4
+
+' --- ESTADO DE LA ÚLTIMA VERIFICACIÓN DE ESQUEMA ---
+' UNA BASE UNA VERSIÓN ATRÁS NO ES UN ERROR: FMain OFRECE MIGRARLA CON EL
+' IMPORTADOR Y EL SCRIPT QUE VIAJAN CON ESTE MISMO PROGRAMA
+Private $bMigracionPendiente As Boolean
+Private $iVersionBase As Integer
 Public Const NOMBRE_BASE As String = "shortcodes.sqlite"
 Public Const TIPO_DRIVER As String = "sqlite3"
 
@@ -88,8 +94,8 @@ Public Function Conectar() As Boolean
   Endif
 
   ' --- 5. CLAVES FORÁNEAS: SON POR CONEXIÓN (GV-30) ---
-  ' EL ESQUEMA 1 NO TIENE CLAVES FORÁNEAS; SE ACTIVAN IGUAL PARA QUE
-  ' UNA TABLA FUTURA NO LAS TENGA DECORATIVAS SIN QUE NADIE LO NOTE
+  ' DESDE EL ESQUEMA 4, EL PAR (modo, tipo) DE CADA SHORTCODE ES UNA CLAVE
+  ' FORÁNEA A modos: SIN ESTO SERÍA DECORATIVA
   Try hConn.Exec("PRAGMA foreign_keys = ON")
   If Error Then
     Message.Warning("No se pudieron activar las claves foráneas." & Chr(10) &
@@ -130,19 +136,17 @@ Public Function VerificarEsquema() As Boolean
   Endif
 
   iVersion = rVersion["version"]
+  $iVersionBase = iVersion
 
-  ' --- 3. UNA VERSIÓN ATRÁS: SE DICE CÓMO MIGRAR ---
-  ' LA MIGRACIÓN LA HACE EL IMPORTADOR DESDE UNA TERMINAL: LA APLICACIÓN
-  ' NO PUEDE ABRIR LA BASE VIEJA PARA LANZARLO
+  ' --- 3. UNA VERSIÓN ATRÁS: MIGRACIÓN PENDIENTE, SIN MENSAJE ---
+  ' FMain LA OFRECE Y LA CORRE CON EL IMPORTADOR Y EL SCRIPT DE ESTE MISMO
+  ' PROGRAMA. SE CIERRA LA CONEXIÓN: sqlite3 NECESITA EL LOCK DE ESCRITURA
   If iVersion = VERSION_ESQUEMA - 1 Then
-    Message.Error("La base está en el esquema v" & CStr(iVersion) &
-      " y esta versión del programa usa el v" & CStr(VERSION_ESQUEMA) & "." & Chr(10) & Chr(10) &
-      "Aplicar desde una terminal:" & Chr(10) &
-      "bash /usr/share/gbshortcodes/engine/importar_shortcodes.sh gbshortcodes-migrar-" &
-      CStr(iVersion) & "-a-" & CStr(VERSION_ESQUEMA) & ".sql" & Chr(10) & Chr(10) &
-      "(desde el IDE, el importador está en .hidden/engine del proyecto)")
+    $bMigracionPendiente = True
+    Cerrar()
     Return False
   Endif
+  $bMigracionPendiente = False
 
   ' --- 4. COMPARACIÓN CONTRA LA VERSIÓN QUE ESTE BINARIO MANEJA ---
   If iVersion <> VERSION_ESQUEMA Then
@@ -153,6 +157,51 @@ Public Function VerificarEsquema() As Boolean
   Endif
 
   Return True
+
+End
+
+' ============================================
+' Función   : MigracionPendiente
+' Propósito : Dice si la última conexión encontró la base una versión atrás
+' Parámetros: ninguno
+' Retorna   : Boolean — True si hay que migrar antes de abrir
+' ============================================
+Public Function MigracionPendiente() As Boolean
+
+  Return $bMigracionPendiente
+
+End
+
+' ============================================
+' Función   : VersionBase
+' Propósito : La versión de esquema que la última conexión leyó en la base
+' Parámetros: ninguno
+' Retorna   : Integer — la versión; 0 si todavía no se leyó
+' ============================================
+Public Function VersionBase() As Integer
+
+  Return $iVersionBase
+
+End
+
+' ============================================
+' Función   : BaseVacia
+' Propósito : Dice si el catálogo no tiene ningún shortcode: una base recién
+'             creada, que espera la carga inicial
+' Parámetros: ninguno
+' Retorna   : Boolean — True si no hay filas; False también si no se pudo leer
+' ============================================
+Public Function BaseVacia() As Boolean
+
+  Dim rCuenta As Result
+
+  ' --- 1. SIN CONEXIÓN NO HAY NADA QUE CONTAR ---
+  If IsNull(hConn) Then Return False
+
+  ' --- 2. CUENTA ---
+  Try rCuenta = hConn.Exec("SELECT COUNT(*) AS n FROM shortcodes")
+  If Error Then Return False
+  Return (rCuenta["n"] = 0)
 
 End
 
@@ -248,7 +297,21 @@ Private Function SentenciasDDL() As String[]
 
   Dim aDDL As New String[]
 
-  ' --- 1. TABLA DE SHORTCODES ---
+  ' --- 1. TABLA DE MODOS: UN MODO NUEVO ES UN DATO, NO UN CAMBIO DE ESQUEMA ---
+  aDDL.Add("CREATE TABLE modos (" &
+    "modo TEXT NOT NULL CHECK (modo <> '' AND modo NOT GLOB '*[^a-z-]*'), " &
+    "tipo TEXT NOT NULL CHECK (tipo IN ('bloque','linea')), " &
+    "descripcion TEXT NOT NULL CHECK (descripcion <> ''), " &
+    "PRIMARY KEY (modo, tipo))")
+  aDDL.Add("INSERT INTO modos (modo, tipo, descripcion) VALUES " &
+    "('envolver', 'bloque', 'Rodea la selección con la apertura y el cierre.'), " &
+    "('envolver', 'linea', 'Rodea la selección dentro del párrafo: [texto]{.clase}.'), " &
+    "('plantilla', 'bloque', 'Inserta apertura, marcador y cierre, sin selección.'), " &
+    "('plantilla', 'linea', 'Inserta apertura, marcador y cierre dentro del párrafo, sin selección.'), " &
+    "('figura', 'bloque', 'El camino de FMain.InsertarFigura de gbpublisher (SC-32).'), " &
+    "('dos-partes', 'bloque', 'Envolver, si la selección tiene la forma {primera}{segunda} (SC-35).')")
+
+  ' --- 1b. TABLA DE SHORTCODES ---
   ' que_es, ejemplo Y como_sale ADMITEN NULL: Edit + Update ESCRIBE LA
   ' CADENA VACÍA COMO NULL, Y UN NOT NULL HARÍA FALLAR EL GUARDADO DE UNA
   ' SECCIÓN VACÍA (VERIFICADO EN 3.19 CON gb.db.sqlite3)
@@ -267,8 +330,7 @@ Private Function SentenciasDDL() As String[]
     "CHECK (estado_libro IN ('no_aplica','borrador','liberado')), " &
     "estado_revista TEXT NOT NULL DEFAULT 'no_aplica' " &
     "CHECK (estado_revista IN ('no_aplica','borrador','liberado')), " &
-    "modo TEXT NOT NULL DEFAULT 'envolver' " &
-    "CHECK (modo IN ('envolver','plantilla','figura','dos-partes')), " &
+    "modo TEXT NOT NULL DEFAULT 'envolver', " &
     "apertura TEXT NOT NULL CHECK (apertura <> ''), " &
     "cierre TEXT NOT NULL CHECK (cierre <> ''), " &
     "que_es TEXT CHECK (que_es <> ''), " &
@@ -282,13 +344,13 @@ Private Function SentenciasDDL() As String[]
     "fecha_modificacion TEXT NOT NULL, " &
     "CHECK ((grupo = 'disciplinar') = (perfil IS NOT NULL)), " &
     "CHECK (estado_libro <> 'no_aplica' OR estado_revista <> 'no_aplica'), " &
-    "CHECK (modo <> 'figura' OR tipo = 'bloque'), " &
     "CHECK ((estado_libro <> 'liberado' AND estado_revista <> 'liberado') " &
     "OR (que_es IS NOT NULL AND ejemplo IS NOT NULL AND como_sale IS NOT NULL)), " &
     "CHECK ((estado_libro <> 'liberado' AND estado_revista <> 'liberado') " &
     "OR pendiente IS NULL), " &
     "CHECK (NOT (estado_libro = 'liberado' AND estado_revista = 'borrador') " &
-    "AND NOT (estado_revista = 'liberado' AND estado_libro = 'borrador')))")
+    "AND NOT (estado_revista = 'liberado' AND estado_libro = 'borrador')), " &
+    "FOREIGN KEY (modo, tipo) REFERENCES modos (modo, tipo))")
 
   ' --- 2. ÍNDICE DEL ORDEN DEL CATÁLOGO ---
   aDDL.Add("CREATE INDEX ix_shortcodes_orden ON shortcodes (grupo, perfil, orden)")
