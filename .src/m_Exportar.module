@@ -33,7 +33,7 @@
 
 ' --- CONTRATO CON gbpublisher: NO SE CAMBIA DE UN LADO SOLO ---
 Public Const ARCHIVO_CATALOGO As String = "_catalogo.tsv"
-Public Const CABECERA_CATALOGO As String = "nombre\tetiqueta\ttipo\tgrupo\tperfil\torden\testado_libro\testado_revista\tmodo\tapertura\tcierre"
+Public Const CABECERA_CATALOGO As String = "nombre\tclase\tetiqueta\ttipo\tgrupo\tperfil\torden\testado_libro\testado_revista\tmodo\tapertura\tcierre"
 Public Const MARCA_EJEMPLO As String = "<!--gb:ejemplo-->"
 
 Public Const ARCHIVO_VOLCADO As String = "shortcodes.sql"
@@ -184,6 +184,9 @@ Private Function ElegirCarpetaPaquete() As String
   Endif
   Dialog.ShowHidden = False
 
+  sCarpeta = Dialog.Path
+  If sCarpeta = "" Then Return ""
+
   ' --- 2. UNA CARPETA VACÍA SIRVE: ES LA PRIMERA EXPORTACIÓN ---
   Try aContenido = Dir(sCarpeta, "*")
   If Error Then
@@ -264,6 +267,7 @@ Private Function LineaCatalogo(oFila As CShortcode) As String
   Dim aCampos As New String[]
 
   aCampos.Add(EscaparTSV(oFila.sNombre))
+  aCampos.Add(oFila.sClase)
   aCampos.Add(EscaparTSV(oFila.sEtiqueta))
   aCampos.Add(oFila.sTipo)
   aCampos.Add(oFila.sGrupo)
@@ -629,10 +633,11 @@ Public Function ArmarVolcado() As String
 
   While rFilas.Available
     ' SIN id_shortcode: ES UN SUBROGADO; LA IDENTIDAD ES nombre
-    aSalida.Add("INSERT INTO shortcodes (nombre, etiqueta, tipo, grupo, perfil, orden, " &
+    aSalida.Add("INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, " &
       "estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, " &
       "mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion) VALUES (" &
       CitarTexto(rFilas["nombre"]) & ", " &
+      CitarTexto(rFilas["clase"]) & ", " &
       CitarTexto(rFilas["etiqueta"]) & ", " &
       CitarTexto(rFilas["tipo"]) & ", " &
       CitarTexto(rFilas["grupo"]) & ", " &

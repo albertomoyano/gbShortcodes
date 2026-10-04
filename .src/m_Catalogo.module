@@ -279,6 +279,7 @@ Private Function ObjetoDeFila(rFila As Result) As CShortcode
   ' --- 1. CAMPOS NOT NULL ---
   oFila.iId = rFila["id_shortcode"]
   oFila.sNombre = rFila["nombre"]
+  oFila.sClase = rFila["clase"]
   oFila.sEtiqueta = rFila["etiqueta"]
   oFila.sTipo = rFila["tipo"]
   oFila.sGrupo = rFila["grupo"]

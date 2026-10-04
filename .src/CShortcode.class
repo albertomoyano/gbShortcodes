@@ -9,6 +9,7 @@
 
 Public iId As Integer
 Public sNombre As String
+Public sClase As String
 Public sEtiqueta As String
 Public sTipo As String
 Public sGrupo As String

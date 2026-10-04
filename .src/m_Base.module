@@ -11,7 +11,7 @@
 
 Public hConn As Connection
 
-Public Const VERSION_ESQUEMA As Integer = 1
+Public Const VERSION_ESQUEMA As Integer = 2
 Public Const NOMBRE_BASE As String = "shortcodes.sqlite"
 Public Const TIPO_DRIVER As String = "sqlite3"
 
@@ -131,7 +131,20 @@ Public Function VerificarEsquema() As Boolean
 
   iVersion = rVersion["version"]
 
-  ' --- 3. COMPARACIÓN CONTRA LA VERSIÓN QUE ESTE BINARIO MANEJA ---
+  ' --- 3. UNA VERSIÓN ATRÁS: SE DICE CÓMO MIGRAR ---
+  ' LA MIGRACIÓN LA HACE EL IMPORTADOR DESDE UNA TERMINAL: LA APLICACIÓN
+  ' NO PUEDE ABRIR LA BASE VIEJA PARA LANZARLO
+  If iVersion = VERSION_ESQUEMA - 1 Then
+    Message.Error("La base está en el esquema v" & CStr(iVersion) &
+      " y esta versión del programa usa el v" & CStr(VERSION_ESQUEMA) & "." & Chr(10) & Chr(10) &
+      "Aplicar desde una terminal:" & Chr(10) &
+      "bash /usr/share/gbshortcodes/engine/importar_shortcodes.sh gbshortcodes-migrar-" &
+      CStr(iVersion) & "-a-" & CStr(VERSION_ESQUEMA) & ".sql" & Chr(10) & Chr(10) &
+      "(desde el IDE, el importador está en .hidden/engine del proyecto)")
+    Return False
+  Endif
+
+  ' --- 4. COMPARACIÓN CONTRA LA VERSIÓN QUE ESTE BINARIO MANEJA ---
   If iVersion <> VERSION_ESQUEMA Then
     Message.Error("Versión de esquema incompatible." & Chr(10) &
       "La base es v" & CStr(iVersion) &
@@ -243,6 +256,8 @@ Private Function SentenciasDDL() As String[]
     "id_shortcode INTEGER PRIMARY KEY, " &
     "nombre TEXT NOT NULL UNIQUE " &
     "CHECK (nombre <> '' AND nombre NOT GLOB '*[^a-z0-9-]*'), " &
+    "clase TEXT NOT NULL " &
+    "CHECK (clase <> '' AND clase NOT GLOB '*[^a-z0-9-]*'), " &
     "etiqueta TEXT NOT NULL CHECK (etiqueta <> ''), " &
     "tipo TEXT NOT NULL CHECK (tipo IN ('bloque','linea')), " &
     "grupo TEXT NOT NULL CHECK (grupo IN ('comun','estructura','disciplinar')), " &
@@ -273,6 +288,7 @@ Private Function SentenciasDDL() As String[]
 
   ' --- 2. ÍNDICE DEL ORDEN DEL CATÁLOGO ---
   aDDL.Add("CREATE INDEX ix_shortcodes_orden ON shortcodes (grupo, perfil, orden)")
+  aDDL.Add("CREATE INDEX ix_shortcodes_clase ON shortcodes (clase)")
 
   ' --- 3. VERSIÓN DE ESQUEMA ---
   aDDL.Add("CREATE TABLE esquema_version (version INTEGER NOT NULL, fecha TEXT NOT NULL)")

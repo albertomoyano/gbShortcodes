@@ -1,6 +1,6 @@
 -- ============================================
 -- shortcodes.sqlite — CATÁLOGO DE SHORTCODES DE GBPUBLISHER
--- Esquema versión 1
+-- Esquema versión 2 (la 2 agrega clase)
 -- Creación manual:  sqlite3 shortcodes.sqlite < shortcodes_esquema.sql
 -- La aplicación crea la base sola en el primer arranque, con este
 -- mismo DDL (m_Base.SentenciasDDL). Si se cambia uno, se cambia el otro.
@@ -9,13 +9,18 @@
 PRAGMA foreign_keys = ON;
 
 -- --- 1. SHORTCODES: UNA FILA POR SHORTCODE ---
--- LO QUE SE EXPORTA A gbpublisher: nombre, etiqueta, tipo, grupo, perfil,
+-- LO QUE SE EXPORTA A gbpublisher: nombre, clase, etiqueta, tipo, grupo, perfil,
 -- orden, estados, modo, apertura, cierre, que_es, ejemplo, como_sale.
 -- LO QUE QUEDA EN gbShortcodes: mapeos, notas y pendiente.
 CREATE TABLE shortcodes (
   id_shortcode       INTEGER PRIMARY KEY,
   nombre             TEXT    NOT NULL UNIQUE
                      CHECK (nombre <> '' AND nombre NOT GLOB '*[^a-z0-9-]*'),
+  -- LA CLASE DE PANDOC QUE ESCRIBE EL .md ({.fig}, ::: epigraph, ]{.gloss}).
+  -- ES LA CLAVE CON QUE gbpublisher VALIDA Y EMPAREJA LOS CIERRES. NO ES
+  -- ÚNICA: LAS VARIANTES (fig-fullwidth, table-landscape) COMPARTEN CLASE
+  clase              TEXT    NOT NULL
+                     CHECK (clase <> '' AND clase NOT GLOB '*[^a-z0-9-]*'),
   etiqueta           TEXT    NOT NULL CHECK (etiqueta <> ''),
   tipo               TEXT    NOT NULL CHECK (tipo IN ('bloque','linea')),
   grupo              TEXT    NOT NULL CHECK (grupo IN ('comun','estructura','disciplinar')),
@@ -53,6 +58,7 @@ CREATE TABLE shortcodes (
 );
 
 CREATE INDEX ix_shortcodes_orden ON shortcodes (grupo, perfil, orden);
+CREATE INDEX ix_shortcodes_clase ON shortcodes (clase);
 
 -- --- 2. VERSIÓN DE ESQUEMA ---
 CREATE TABLE esquema_version (
@@ -60,4 +66,4 @@ CREATE TABLE esquema_version (
   fecha   TEXT    NOT NULL
 );
 
-INSERT INTO esquema_version (version, fecha) VALUES (1, date('now'));
+INSERT INTO esquema_version (version, fecha) VALUES (2, date('now'));

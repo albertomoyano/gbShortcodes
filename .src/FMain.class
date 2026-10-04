@@ -821,6 +821,7 @@ Private Sub MostrarShortcode(sNombre As String)
   $bCargando = True
 
   txtNombre.Text = oFila.sNombre
+  txtClase.Text = oFila.sClase
   txtTipo.Text = oFila.sTipo
   txtModo.Text = oFila.sModo
   txtEtiqueta.Text = oFila.sEtiqueta
@@ -1034,6 +1035,7 @@ Private Sub LimpiarDetalle()
   $bCargando = True
 
   txtNombre.Text = ""
+  txtClase.Text = ""
   txtTipo.Text = ""
   txtModo.Text = ""
   txtEtiqueta.Text = ""

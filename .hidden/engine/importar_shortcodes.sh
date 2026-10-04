@@ -26,10 +26,11 @@ SCRIPT_SQL="${1:-}"
 BASE="${2:-$HOME/.gbshortcodes/shortcodes.sqlite}"
 CARPETA_BASE="$(dirname "$BASE")"
 CARPETA_RESPALDOS="$CARPETA_BASE/respaldos"
-SELLO="$(date +%Y%m%d-%H%M%S)"
+# EL PID EVITA QUE DOS CORRIDAS EN EL MISMO SEGUNDO SE PISEN EL RESPALDO
+SELLO="$(date +%Y%m%d-%H%M%S)-$$"
 
 # Versión de esquema que este catálogo maneja. Si algún día sube, sube acá.
-ESQUEMA_ESPERADO=1
+ESQUEMA_ESPERADO=2
 
 # Cuántos respaldos se conservan antes de empezar a borrar los viejos.
 RESPALDOS_A_CONSERVAR=20
@@ -111,31 +112,63 @@ if [ "$INTEGRIDAD" != "ok" ]; then
 fi
 ok "Integridad de la base: correcta"
 
-# --- Versión de esquema: la de la base contra la que este script maneja ---
+# --- Versión de esquema ---
+# Un script común se escribe para la versión que maneja este importador.
+# Una migración lo declara en su cabecera («-- Migración: 1 a 2») y es lo
+# único que se acepta sobre una base de la versión anterior: la aplicación
+# no la puede abrir, así que la migración se corre desde una terminal.
 ESQUEMA_BASE="$(consultar 'SELECT MAX(version) FROM esquema_version;')"
 if [ -z "$ESQUEMA_BASE" ]; then
   falla "No se pudo leer esquema_version: puede no ser una base de shortcodes"
   terminar "ERROR" "sin esquema_version"
 fi
 
-if [ "$ESQUEMA_BASE" != "$ESQUEMA_ESPERADO" ]; then
-  falla "La base está en esquema v$ESQUEMA_BASE y este script maneja v$ESQUEMA_ESPERADO"
-  terminar "ERROR" "esquema incompatible"
-fi
-ok "Esquema de la base: v$ESQUEMA_BASE"
+MIGRACION="$(grep -iEm1 '^[[:space:]]*--[[:space:]]*migraci(o|ó)n[[:space:]]*:' "$SCRIPT_SQL" \
+  | grep -oE '[0-9]+' | tr '\n' ' ')"
+MIGRA_DE="$(echo "$MIGRACION" | cut -d' ' -f1)"
+MIGRA_A="$(echo "$MIGRACION" | cut -d' ' -f2)"
 
-# --- Versión declarada en la cabecera del .sql, si la declara ---
-# Se acepta "-- Esquema: version 1", "-- esquema: 1" y variantes.
-ESQUEMA_DECLARADO="$(grep -iEm1 '^[[:space:]]*--[[:space:]]*esquema' "$SCRIPT_SQL" \
-  | grep -oE '[0-9]+' | head -n1)"
+if [ -n "$MIGRA_DE" ]; then
 
-if [ -z "$ESQUEMA_DECLARADO" ]; then
-  aviso "El script no declara versión de esquema en su cabecera"
-elif [ "$ESQUEMA_DECLARADO" != "$ESQUEMA_BASE" ]; then
-  falla "El script fue escrito para v$ESQUEMA_DECLARADO y la base está en v$ESQUEMA_BASE"
-  terminar "ERROR" "el script no corresponde a esta base"
+  if [ -z "$MIGRA_A" ]; then
+    falla "La cabecera de migración no dice a qué versión lleva («-- Migración: 1 a 2»)"
+    terminar "ERROR" "migración mal declarada"
+  fi
+  if [ "$MIGRA_A" != "$ESQUEMA_ESPERADO" ]; then
+    falla "La migración lleva a v$MIGRA_A y este importador maneja v$ESQUEMA_ESPERADO"
+    terminar "ERROR" "migración para otra versión"
+  fi
+  if [ "$ESQUEMA_BASE" != "$MIGRA_DE" ]; then
+    falla "La migración parte de v$MIGRA_DE y la base está en v$ESQUEMA_BASE"
+    terminar "ERROR" "la base no está en la versión de partida"
+  fi
+  ok "Migración de esquema: v$MIGRA_DE → v$MIGRA_A (la base está en v$ESQUEMA_BASE)"
+
 else
-  ok "El script declara v$ESQUEMA_DECLARADO: coincide"
+
+  if [ "$ESQUEMA_BASE" != "$ESQUEMA_ESPERADO" ]; then
+    falla "La base está en esquema v$ESQUEMA_BASE y este script maneja v$ESQUEMA_ESPERADO"
+    if [ "$ESQUEMA_BASE" -lt "$ESQUEMA_ESPERADO" ] 2>/dev/null; then
+      echo "      Primero hay que aplicar la migración a v$ESQUEMA_ESPERADO."
+    fi
+    terminar "ERROR" "esquema incompatible"
+  fi
+  ok "Esquema de la base: v$ESQUEMA_BASE"
+
+  # --- Versión declarada en la cabecera del .sql, si la declara ---
+  # Se acepta "-- Esquema: version 2", "-- esquema: 2" y variantes.
+  ESQUEMA_DECLARADO="$(grep -iEm1 '^[[:space:]]*--[[:space:]]*esquema' "$SCRIPT_SQL" \
+    | grep -oE '[0-9]+' | head -n1)"
+
+  if [ -z "$ESQUEMA_DECLARADO" ]; then
+    aviso "El script no declara versión de esquema en su cabecera"
+  elif [ "$ESQUEMA_DECLARADO" != "$ESQUEMA_BASE" ]; then
+    falla "El script fue escrito para v$ESQUEMA_DECLARADO y la base está en v$ESQUEMA_BASE"
+    terminar "ERROR" "el script no corresponde a esta base"
+  else
+    ok "El script declara v$ESQUEMA_DECLARADO: coincide"
+  fi
+
 fi
 
 # ============================================================
@@ -286,6 +319,19 @@ fi
 
 rm -f "$SALIDA_SQL"
 ok "Sentencias aplicadas sin error"
+
+# Una migración que dice haber terminado se comprueba: la versión de la
+# base tiene que ser la de destino (SC-13: el informe no afirma lo que
+# no verificó)
+if [ -n "$MIGRA_DE" ]; then
+  ESQUEMA_DESPUES="$(consultar 'SELECT MAX(version) FROM esquema_version;')"
+  if [ "$ESQUEMA_DESPUES" = "$MIGRA_A" ]; then
+    ok "La base quedó en el esquema v$ESQUEMA_DESPUES"
+  else
+    falla "La base quedó en v${ESQUEMA_DESPUES:-?} y la migración debía llevarla a v$MIGRA_A"
+    terminar "ERROR" "migración incompleta: restaurar el respaldo"
+  fi
+fi
 
 # ============================================================
 # 7. VERIFICACIONES POSTERIORES

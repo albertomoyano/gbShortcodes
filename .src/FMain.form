@@ -118,6 +118,18 @@
           ToolTip = ("Lo que se ve en la lista de gbpublisher")
           Expand = True
         }
+        { lblClase Label
+          Move(450,0,72,36)
+          Alignment = Align.Right
+          Text = ("Clase:")
+        }
+        { txtClase TextBox
+          Move(531,0,171,36)
+          Background = Color.Background
+          Font = Font["IBM Plex Mono"]
+          ToolTip = ("La clase de Pandoc: la del .md y la del cierre nombrado")
+          ReadOnly = True
+        }
       }
       { hbxEstados HBox
         Move(0,72,720,36)
