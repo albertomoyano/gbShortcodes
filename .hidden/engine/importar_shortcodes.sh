@@ -30,7 +30,7 @@ CARPETA_RESPALDOS="$CARPETA_BASE/respaldos"
 SELLO="$(date +%Y%m%d-%H%M%S)-$$"
 
 # Versión de esquema que este catálogo maneja. Si algún día sube, sube acá.
-ESQUEMA_ESPERADO=4
+ESQUEMA_ESPERADO=5
 
 # Cuántos respaldos se conservan antes de empezar a borrar los viejos.
 RESPALDOS_A_CONSERVAR=20

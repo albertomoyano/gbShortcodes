@@ -29,12 +29,15 @@ Public Const FILTRO_PENDIENTES As String = "@pendientes"
 Public Const FILTRO_COMUNES As String = "@comun"
 Public Const FILTRO_ESTRUCTURA As String = "@estructura"
 Public Const FILTRO_DISCIPLINARES As String = "@disciplinar"
+Public Const FILTRO_COMPOSICION As String = "@composicion"
 
 ' --- ORDEN DEL CATÁLOGO: EL MISMO EN LA LISTA Y EN TODAS LAS SALIDAS ---
-' GRUPO (COMUNES, ESTRUCTURA, DISCIPLINARES), PERFIL, ORDEN Y NOMBRE.
+' GRUPO (COMUNES, ESTRUCTURA, DISCIPLINARES, COMPOSICIÓN), PERFIL, ORDEN Y
+' NOMBRE. COMPOSICIÓN VA AL FINAL: SON INSTRUCCIONES DEL PDF, DE LA ÚLTIMA
+' PASADA (SC-38).
 ' EL NOMBRE AL FINAL DESEMPATA: DOS FILAS CON EL MISMO orden NO PUEDEN
 ' CAMBIAR DE LUGAR ENTRE DOS EXPORTACIONES
-Public Const ORDEN_CATALOGO As String = "CASE grupo WHEN 'comun' THEN 1 WHEN 'estructura' THEN 2 ELSE 3 END, IFNULL(perfil, ''), orden, nombre"
+Public Const ORDEN_CATALOGO As String = "CASE grupo WHEN 'comun' THEN 1 WHEN 'estructura' THEN 2 WHEN 'disciplinar' THEN 3 ELSE 4 END, IFNULL(perfil, ''), orden, nombre"
 
 ' --- MARCA DE LO LIBERADO EN LA LISTA ---
 Private Const MARCA_LIBERADO As String = "★ "
@@ -72,6 +75,8 @@ Public Function CargarFiltros() As String[]
   aEtiquetas.Add("Estructura del producto")
   $aFiltros.Add(FILTRO_DISCIPLINARES)
   aEtiquetas.Add("Disciplinares")
+  $aFiltros.Add(FILTRO_COMPOSICION)
+  aEtiquetas.Add("Composición (solo PDF)")
 
   Return aEtiquetas
 
@@ -120,6 +125,8 @@ Private Function CondicionDeFiltro(sFiltro As String) As String
       Return "grupo = 'estructura'"
     Case FILTRO_DISCIPLINARES
       Return "grupo = 'disciplinar'"
+    Case FILTRO_COMPOSICION
+      Return "grupo = 'composicion'"
   End Select
 
   Return ""

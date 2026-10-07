@@ -11,7 +11,7 @@
 
 Public hConn As Connection
 
-Public Const VERSION_ESQUEMA As Integer = 4
+Public Const VERSION_ESQUEMA As Integer = 5
 
 ' --- ESTADO DE LA ÚLTIMA VERIFICACIÓN DE ESQUEMA ---
 ' UNA BASE UNA VERSIÓN ATRÁS NO ES UN ERROR: FMain OFRECE MIGRARLA CON EL
@@ -323,7 +323,7 @@ Private Function SentenciasDDL() As String[]
     "CHECK (clase <> '' AND clase NOT GLOB '*[^a-z0-9-]*'), " &
     "etiqueta TEXT NOT NULL CHECK (etiqueta <> ''), " &
     "tipo TEXT NOT NULL CHECK (tipo IN ('bloque','linea')), " &
-    "grupo TEXT NOT NULL CHECK (grupo IN ('comun','estructura','disciplinar')), " &
+    "grupo TEXT NOT NULL CHECK (grupo IN ('comun','estructura','disciplinar','composicion')), " &
     "perfil TEXT CHECK (perfil <> '' AND perfil NOT GLOB '*[^a-z_]*'), " &
     "orden INTEGER NOT NULL, " &
     "estado_libro TEXT NOT NULL DEFAULT 'no_aplica' " &

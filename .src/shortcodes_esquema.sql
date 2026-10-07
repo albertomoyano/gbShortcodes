@@ -1,7 +1,8 @@
 -- ============================================
 -- shortcodes.sqlite — CATÁLOGO DE SHORTCODES DE GBPUBLISHER
--- Esquema versión 4 (la 2 agrega clase; la 3, la regla de liberación;
--- la 4, la tabla modos: un modo nuevo es un dato, no un cambio de esquema)
+-- Esquema versión 5 (la 2 agrega clase; la 3, la regla de liberación;
+-- la 4, la tabla modos: un modo nuevo es un dato, no un cambio de esquema;
+-- la 5, el grupo composicion: instrucciones de composición del PDF, SC-38)
 -- Creación manual:  sqlite3 shortcodes.sqlite < shortcodes_esquema.sql
 -- La aplicación crea la base sola en el primer arranque, con este
 -- mismo DDL (m_Base.SentenciasDDL). Si se cambia uno, se cambia el otro.
@@ -43,7 +44,7 @@ CREATE TABLE shortcodes (
                      CHECK (clase <> '' AND clase NOT GLOB '*[^a-z0-9-]*'),
   etiqueta           TEXT    NOT NULL CHECK (etiqueta <> ''),
   tipo               TEXT    NOT NULL CHECK (tipo IN ('bloque','linea')),
-  grupo              TEXT    NOT NULL CHECK (grupo IN ('comun','estructura','disciplinar')),
+  grupo              TEXT    NOT NULL CHECK (grupo IN ('comun','estructura','disciplinar','composicion')),
   perfil             TEXT    CHECK (perfil <> '' AND perfil NOT GLOB '*[^a-z_]*'),
   orden              INTEGER NOT NULL,
   estado_libro       TEXT    NOT NULL DEFAULT 'no_aplica'
@@ -94,4 +95,4 @@ CREATE TABLE esquema_version (
   fecha   TEXT    NOT NULL
 );
 
-INSERT INTO esquema_version (version, fecha) VALUES (4, date('now'));
+INSERT INTO esquema_version (version, fecha) VALUES (5, date('now'));
