@@ -1,14 +1,18 @@
 -- ============================================================
--- carga-inicial: el catálogo completo de shortcodes, en el esquema 4
+-- carga-inicial: el catálogo completo de shortcodes, en el esquema 5
 -- ------------------------------------------------------------
 -- Para una base nueva, vacía: la aplicación la ofrece al abrir una base
--- sin shortcodes. Es el estado del catálogo al pasar a la versión 4: la
+-- sin shortcodes. Es el estado del catálogo al pasar a la versión 5: la
 -- carga original de los 77 shortcodes de MySQL más datos-v3-001 (el
--- epígrafe) y datos-v3-002 (la figura de ancho completo). Una base que
--- ya tiene datos no la usa: se migra y sigue con los datos-v4-*.
+-- epígrafe), datos-v3-002 (la figura de ancho completo) y datos-v4-001
+-- (el modo separador y el froufrou), porque una base nueva no puede
+-- aplicar scripts de una versión anterior. Una base que ya tiene datos no
+-- la usa: se migra y sigue con los datos-v5-*.
+-- La versión anterior de este archivo declaraba el esquema 4 y el
+-- importador de la 5 la rechazaba: una base nueva quedaba sin catálogo.
 -- Modifica: nada. Exige la base vacía.
--- Liberados: epigraph, figure, fig-fullwidth.
--- Esquema: 4
+-- Liberados: epigraph, figure, fig-fullwidth, froufrou.
+-- Esquema: 5
 -- ============================================================
 
 BEGIN TRANSACTION;
@@ -698,10 +702,30 @@ En un matraz de 250 mL se añadieron...
 :::', NULL, NULL, 'sec', 'Plantilla JATS (MySQL, sin uso):
 <sec sec-type="experimental-procedure"><title>Procedimiento</title>{{contenido}}</sec>', NULL, datetime('now','localtime'), datetime('now','localtime'));
 
--- LAS 77 FILAS Y LOS LIBERADOS
-INSERT INTO _verif SELECT 'filas cargadas', COUNT(*) = 77 FROM shortcodes;
-INSERT INTO _verif SELECT 'liberados', COUNT(*) = 3 FROM shortcodes
+-- datos-v4-001: EL MODO separador Y EL FROUFROU (SC-36)
+INSERT INTO modos (modo, tipo, descripcion) VALUES
+  ('separador', 'bloque', 'Un bloque vacío, sin selección y en una línea vacía (SC-36).');
+
+INSERT INTO shortcodes (nombre, clase, etiqueta, tipo, grupo, perfil, orden, estado_libro, estado_revista, modo, apertura, cierre, que_es, ejemplo, como_sale, mapeo_docbook, mapeo_jats, notas, pendiente, fecha_alta, fecha_modificacion)
+VALUES ('froufrou', 'froufrou', 'Froufrou (separador)', 'bloque', 'comun', NULL, 140, 'liberado', 'no_aplica', 'separador', '::: froufrou', ':::',
+        'Separador ornamental entre dos tramos de un texto: marca un cambio de escena, de tiempo o de tono sin abrir una sección. Es solo de libros.
+
+Va en una línea vacía entre dos párrafos: el shortcode no admite una selección y pide el cursor al principio de una línea vacía. El bloque no lleva contenido.', '::: froufrou
+
+[/froufrou]: # ()
+:::', 'En el PDF sale el ornamento del paquete `froufrou` de LaTeX, centrado, con el espacio que trae el paquete.
+
+En el HTML y el EPUB salen tres asteriscos centrados, separados por 1 cm, sin depender de la fuente; los lectores de pantalla lo anuncian como separador.
+
+En una revista no se usa: un bloque escrito a mano en un artículo detiene la conversión. Un froufrou con contenido también la detiene.', 'para role="froufrou"', NULL, 'Libro: fenced-divs-to-elements-db.lua escribe <para role="froufrou">* * *</para> (DocBook no tiene elemento de separación; el texto lo muestra cualquier lector). PDF: \froufrou, con \usepackage{froufrou} en preambulo-contrato.tex. HTML: flex con column-gap de 1 cm (la salida está indentada); EPUB: margen de 1 cm entre los span. Revista: cite-to-xref.lua frena. ODT de libros: todavía no existe.', NULL,
+        datetime('now','localtime'), datetime('now','localtime'));
+
+-- LAS 78 FILAS, LOS LIBERADOS Y LAS CLAVES FORÁNEAS
+INSERT INTO _verif SELECT 'filas cargadas', COUNT(*) = 78 FROM shortcodes;
+INSERT INTO _verif SELECT 'liberados', COUNT(*) = 4 FROM shortcodes
   WHERE estado_libro = 'liberado' OR estado_revista = 'liberado';
+INSERT INTO _verif SELECT 'modo separador', COUNT(*) = 1 FROM modos WHERE modo = 'separador';
+INSERT INTO _verif SELECT 'claves foráneas', COUNT(*) = 0 FROM pragma_foreign_key_check('shortcodes');
 
 DROP TABLE _verif;
 
